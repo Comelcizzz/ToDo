@@ -72,20 +72,17 @@ class TaskService {
     // Method to delete a task
     async deleteTask(projectId, taskId) {
         try {
-            // Find the task by its ID
-            const task = await taskModel.findById(taskId);
-            if (!task) {
-                throw ApiError.BadRequest('Task not found'); // Handle case when task is not found
+            // Find the task by its ID and delete it
+            const deletedTask = await taskModel.findByIdAndDelete(taskId);
+            if (!deletedTask) {
+                throw ApiError.BadRequest('Task not found');
             }
-            // Delete the task by its ID
-            await taskModel.findByIdAndDelete(taskId);
-            // Retrieve the updated list of tasks for the project
-            const updatedTasks = await this.getTasks(projectId);
-            return updatedTasks; // Return the updated list of tasks
+            return deletedTask; // Return the deleted task or confirmation
         } catch (e) {
-            throw ApiError.InternalServerError('Error deleting task'); // Handle error if task deletion fails
+            throw ApiError.InternalServerError(`Error deleting task: ${e.message}`);
         }
-    }      
+    }
+         
 }
 
 module.exports = new TaskService();
