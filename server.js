@@ -40,9 +40,10 @@ const start = async () => {
         await mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true });
         console.log('MongoDB connected');
 
-        // Starting the Express server and listening on the specified port
+        // Starting the Express server and listening on the specified port|
+        const url = process.env.CLIENT_URL;
         app.listen(port, () => {
-            console.log(`Сервер запущено на http://localhost:${port}`);
+            console.log(`Server launched at ${url}`);
         });
     } catch (e) {
         console.error('Error starting the server:', e); // Logging any connection errors
