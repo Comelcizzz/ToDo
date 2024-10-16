@@ -10,8 +10,6 @@ async function hashPassword(password) {
     } catch (error) {
         // Log any error that occurs during the hashing process
         console.error('Hashing error:', error);
-        // Rethrow the error to be handled by the calling function
-        throw error;
     }
 }
 
