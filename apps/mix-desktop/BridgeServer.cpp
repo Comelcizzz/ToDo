@@ -38,7 +38,7 @@ bool BridgeServer::start()
 
 void BridgeServer::stop()
 {
-    stopWaitingForSocket();
+    juce::InterprocessConnectionServer::stop();
 }
 
 void BridgeServer::setAnalysisHandler(

@@ -2,6 +2,7 @@ node_modules/
 ui/dist/
 build/
 out/
+dist/
 .cache/
 .env
 *.log

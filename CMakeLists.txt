@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(MasteringAudioSuite VERSION 0.1.0 LANGUAGES CXX)
+project(MasteringAudioSuite VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -36,6 +36,7 @@ target_include_directories(mastering_audio_core
 
 target_compile_features(mastering_audio_core PUBLIC cxx_std_23)
 target_link_libraries(mastering_audio_core PUBLIC nlohmann_json::nlohmann_json)
+set_target_properties(mastering_audio_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(MSVC)
     target_compile_options(mastering_audio_core PRIVATE /W4 /permissive-)
@@ -98,6 +99,7 @@ if(MASTERING_AUDIO_BUILD_PRODUCTS)
         NEEDS_MIDI_OUTPUT FALSE
         IS_MIDI_EFFECT FALSE
         EDITOR_WANTS_KEYBOARD_FOCUS TRUE
+        NEEDS_WEB_BROWSER TRUE
         COPY_PLUGIN_AFTER_BUILD FALSE
     )
     target_sources(MasteringAudioAnalyzer PRIVATE
@@ -125,6 +127,7 @@ if(MASTERING_AUDIO_BUILD_PRODUCTS)
         COMPANY_NAME "Mastering Audio"
         BUNDLE_ID "audio.mastering.suite"
         PRODUCT_NAME "Mastering Audio Suite"
+        NEEDS_WEB_BROWSER TRUE
     )
     target_sources(MasteringAudioSuite PRIVATE
         apps/mix-desktop/Main.cpp
@@ -149,12 +152,14 @@ if(MASTERING_AUDIO_BUILD_PRODUCTS)
 
     foreach(target MasteringAudioAnalyzer MasteringAudioSuite)
         target_compile_definitions(${target} PRIVATE
-            JUCE_WEB_BROWSER=1
-            JUCE_USE_CURL=0
             JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1
             JUCE_DISPLAY_SPLASH_SCREEN=0
         )
     endforeach()
+
+    target_compile_definitions(MasteringAudioAnalyzer PUBLIC JUCE_VST3_CAN_REPLACE_VST2=0)
+    target_link_libraries(MasteringAudioAnalyzer PRIVATE juce::juce_events)
+    target_link_libraries(MasteringAudioSuite PRIVATE juce::juce_events)
 
     install(TARGETS MasteringAudioSuite RUNTIME DESTINATION .)
     set(CPACK_PACKAGE_NAME "Mastering Audio Suite")

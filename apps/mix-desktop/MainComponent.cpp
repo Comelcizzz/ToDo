@@ -1,7 +1,6 @@
 #include "mix-desktop/MainComponent.h"
 
 #include <algorithm>
-#include <nlohmann/json.hpp>
 
 namespace mastering::desktop {
 namespace {
@@ -102,7 +101,7 @@ void MainComponent::handleCommand(const juce::var& command)
     } else if (type == "open-project") {
         chooseProjectToOpen();
     } else if (type == "save-project") {
-        saveProject(projectFile_ == juce::File {});
+        saveProject(projectFile_.getFullPathName().isEmpty());
     } else if (type == "import-stems") {
         chooseStems();
     } else if (type == "import-reference") {
@@ -153,27 +152,39 @@ void MainComponent::handleBridgeAnalysis(const juce::var& report)
     const auto roleName = object->getProperty("role").toString().toStdString();
     const auto role = project::roleFromString(roleName);
     const auto metricsValue = object->getProperty("metrics");
-    if (!role || metricsValue.isVoid())
+    if (!role || !metricsValue.isObject())
         return;
 
-    const auto metricsJson = juce::JSON::toString(metricsValue, false).toStdString();
-    project::ProjectDocument temporary;
-    temporary.id = "bridge";
-    project::TrackRecord reportTrack;
-    reportTrack.id = "report";
-    reportTrack.role = *role;
-    temporary.tracks.push_back(reportTrack);
-    auto serialized = nlohmann::json::parse(project::serialize(temporary));
-    serialized["tracks"][0]["metrics"] = nlohmann::json::parse(metricsJson);
-    const auto restored = project::deserialize(serialized.dump());
-    if (!restored || restored->tracks.empty())
-        return;
+    analysis::AudioMetrics metrics;
+    const auto* metricsObject = metricsValue.getDynamicObject();
+    metrics.samplePeakDbfs = static_cast<double>(metricsObject->getProperty("samplePeakDbfs"));
+    metrics.estimatedTruePeakDbtp =
+        static_cast<double>(metricsObject->getProperty("estimatedTruePeakDbtp"));
+    metrics.rmsDbfs = static_cast<double>(metricsObject->getProperty("rmsDbfs"));
+    metrics.integratedLufs = static_cast<double>(metricsObject->getProperty("integratedLufs"));
+    metrics.crestFactorDb = static_cast<double>(metricsObject->getProperty("crestFactorDb"));
+    metrics.stereoCorrelation =
+        static_cast<double>(metricsObject->getProperty("stereoCorrelation"));
+    metrics.transientDensityHz =
+        static_cast<double>(metricsObject->getProperty("transientDensityHz"));
+    metrics.durationSeconds = static_cast<double>(metricsObject->getProperty("durationSeconds"));
+    metrics.sampleRate = static_cast<int>(metricsObject->getProperty("sampleRate"));
+    metrics.channels = static_cast<std::size_t>(
+        static_cast<int>(metricsObject->getProperty("channels")));
+    if (const auto* spectrum = metricsObject->getProperty("spectrum").getDynamicObject()) {
+        metrics.spectrum.subDb = static_cast<double>(spectrum->getProperty("subDb"));
+        metrics.spectrum.bassDb = static_cast<double>(spectrum->getProperty("bassDb"));
+        metrics.spectrum.lowMidDb = static_cast<double>(spectrum->getProperty("lowMidDb"));
+        metrics.spectrum.midDb = static_cast<double>(spectrum->getProperty("midDb"));
+        metrics.spectrum.presenceDb = static_cast<double>(spectrum->getProperty("presenceDb"));
+        metrics.spectrum.airDb = static_cast<double>(spectrum->getProperty("airDb"));
+    }
 
     const auto match = std::ranges::find_if(project_.tracks, [role](const auto& track) {
         return track.role == *role;
     });
     if (match != project_.tracks.end()) {
-        match->metrics = restored->tracks.front().metrics;
+        match->metrics = metrics;
         engine_.updateTrack(*match);
     }
     pushState();
@@ -185,7 +196,7 @@ void MainComponent::createProject()
     project_ = {};
     project_.id = project::makeProjectId();
     project_.name = "Untitled Mix";
-    projectFile_ = {};
+    projectFile_ = juce::File();
     currentPlan_ = {};
     referenceMetrics_.reset();
     engine_.loadProject(project_);
@@ -256,7 +267,7 @@ void MainComponent::chooseMasterDestination()
             | juce::FileBrowserComponent::canSelectFiles
             | juce::FileBrowserComponent::warnAboutOverwriting,
         [safeThis](const juce::FileChooser& chooser) {
-            if (safeThis == nullptr || chooser.getResult() == juce::File {})
+            if (safeThis == nullptr || chooser.getResult().getFullPathName().isEmpty())
                 return;
             juce::String error;
             if (!safeThis->engine_.renderMaster(
@@ -300,7 +311,7 @@ void MainComponent::saveProject(bool chooseDestination)
                 | juce::FileBrowserComponent::canSelectFiles
                 | juce::FileBrowserComponent::warnAboutOverwriting,
             [safeThis](const juce::FileChooser& chooser) {
-                if (safeThis == nullptr || chooser.getResult() == juce::File {})
+                if (safeThis == nullptr || chooser.getResult().getFullPathName().isEmpty())
                     return;
                 safeThis->projectFile_ = chooser.getResult().withFileExtension("masuite");
                 safeThis->saveProject(false);
@@ -360,8 +371,8 @@ void MainComponent::pushState()
         return;
     object->setProperty("product", "desktop");
     object->setProperty("connected", true);
-    object->setProperty("projectId", project_.id);
-    object->setProperty("projectName", project_.name);
+    object->setProperty("projectId", juce::String(project_.id));
+    object->setProperty("projectName", juce::String(project_.name));
     object->setProperty("playing", engine_.isPlaying());
     object->setProperty("positionSeconds", engine_.positionSeconds());
     object->setProperty("durationSeconds", engine_.durationSeconds());

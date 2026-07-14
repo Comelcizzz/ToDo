@@ -3,6 +3,7 @@
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <ranges>
 
 TEST_CASE("Project documents round trip without losing track state", "[project]")
 {
@@ -65,4 +66,29 @@ TEST_CASE("Mix advisor bounds automatic gain and reports sub conflict", "[assist
     REQUIRE(plan.trackAdjustments.size() == 2);
     CHECK(plan.trackAdjustments.front().gainDeltaDb == Catch::Approx(9.0));
     CHECK_FALSE(plan.suggestions.empty());
+}
+
+TEST_CASE("Mix advisor reports vocal-to-bed imbalance", "[assistant]")
+{
+    mastering::project::ProjectDocument project;
+    project.id = "project-2";
+
+    mastering::project::TrackRecord vocal;
+    vocal.id = "vocal";
+    vocal.role = mastering::project::TrackRole::cleanVocal;
+    vocal.metrics.rmsDbfs = -30.0;
+
+    mastering::project::TrackRecord guitars;
+    guitars.id = "guitars";
+    guitars.role = mastering::project::TrackRole::rhythmGuitar;
+    guitars.metrics.rmsDbfs = -20.0;
+
+    project.tracks = {vocal, guitars};
+    const mastering::assistant::MixAdvisor advisor;
+    const auto plan = advisor.createPlan(project);
+
+    const auto vocalSuggestion = std::ranges::find_if(plan.suggestions, [](const auto& suggestion) {
+        return suggestion.title == "Raise vocal-to-bed clarity";
+    });
+    REQUIRE(vocalSuggestion != plan.suggestions.end());
 }

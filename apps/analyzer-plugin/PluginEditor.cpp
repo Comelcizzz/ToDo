@@ -64,7 +64,7 @@ void AnalyzerEditor::pushState()
     state->setProperty("durationSeconds", processor_.metrics().durationSeconds);
     state->setProperty("tracks", juce::Array<juce::var> {});
     state->setProperty("suggestions", juce::Array<juce::var> {});
-    state->setProperty("analyzerRole", project::roleToString(processor_.role()));
+    state->setProperty("analyzerRole", juce::String(project::roleToString(processor_.role())));
     state->setProperty(
         "analyzerMetrics",
         juce::JSON::parse(juce::String(analysis::toJson(processor_.metrics()))));

@@ -72,7 +72,7 @@ void StemEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToF
             0,
             bufferToFill.numSamples);
         track->transport.getNextAudioBlock(trackInfo);
-        auto* trackChannels[] {
+        float* trackChannels[] {
             track->scratch.getWritePointer(0),
             track->scratch.getWritePointer(1)
         };
@@ -297,7 +297,7 @@ bool StemEngine::renderMaster(
                 continue;
             stem.clear();
             track.reader->read(&stem, 0, samples, position, true, true);
-            auto* channels[] {stem.getWritePointer(0), stem.getWritePointer(1)};
+            float* channels[] {stem.getWritePointer(0), stem.getWritePointer(1)};
             track.processor.process(channels, 2, samples);
 
             const auto gain = static_cast<float>(dsp::dbToGain(track.record.gainDb));
@@ -320,7 +320,7 @@ bool StemEngine::renderMaster(
                 samples,
                 gain * static_cast<float>(std::sqrt((1.0 + pan) * 0.5)) * polarity);
         }
-        auto* mixChannels[] {mix.getWritePointer(0), mix.getWritePointer(1)};
+        float* mixChannels[] {mix.getWritePointer(0), mix.getWritePointer(1)};
         master.process(mixChannels, 2, samples);
         if (!writer->writeFromAudioSampleBuffer(mix, 0, samples)) {
             errorMessage = "Disk write failed before the master was complete.";

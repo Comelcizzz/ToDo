@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <nlohmann/json.hpp>
+#include <string>
 
 namespace mastering::assistant {
 namespace {
@@ -159,7 +160,9 @@ MixPlan MixAdvisor::createPlan(
     MixPlan plan;
     const project::TrackRecord* kick = nullptr;
     const project::TrackRecord* bass = nullptr;
-    bool hasLeadVocal = false;
+    const project::TrackRecord* leadVocal = nullptr;
+    double bedRmsSum = 0.0;
+    std::size_t bedCount = 0;
 
     for (const auto& track : project.tracks) {
         auto settings = settingsForRole(track.role, track.metrics);
@@ -218,7 +221,11 @@ MixPlan MixAdvisor::createPlan(
         if (track.role == TrackRole::bass)
             bass = &track;
         if (track.role == TrackRole::cleanVocal || track.role == TrackRole::screamVocal)
-            hasLeadVocal = true;
+            leadVocal = &track;
+        if (!isVocal(track.role)) {
+            bedRmsSum += track.metrics.rmsDbfs;
+            ++bedCount;
+        }
     }
 
     if (kick != nullptr && bass != nullptr
@@ -232,7 +239,7 @@ MixPlan MixAdvisor::createPlan(
             "or let the kick own the deepest transient, then apply short band-limited ducking.",
             0.88);
     }
-    if (!hasLeadVocal) {
+    if (leadVocal == nullptr) {
         addSuggestion(
             plan,
             SuggestionKind::qualityControl,
@@ -241,6 +248,28 @@ MixPlan MixAdvisor::createPlan(
             "No stem is tagged as a lead vocal, so vocal-to-bed and presence guardrails "
             "cannot be evaluated.",
             0.75);
+    } else if (bedCount > 0) {
+        const auto bedAverage = bedRmsSum / static_cast<double>(bedCount);
+        const auto vocalToBed = leadVocal->metrics.rmsDbfs - bedAverage;
+        if (vocalToBed < -1.5) {
+            addSuggestion(
+                plan,
+                SuggestionKind::masking,
+                leadVocal->id,
+                "Raise vocal-to-bed clarity",
+                "Lead vocal sits below the average bed. Prefer dynamic guitar/synth carve "
+                "and a small vocal ride instead of crushing the master bus.",
+                0.84);
+        } else if (vocalToBed > 6.0) {
+            addSuggestion(
+                plan,
+                SuggestionKind::dynamics,
+                leadVocal->id,
+                "Blend the vocal into the wall",
+                "Lead vocal is far above the bed. Keep intelligibility, but add shared "
+                "ambience or lower dry level so the chorus still feels like one production.",
+                0.78);
+        }
     }
 
     plan.masterProcessing.amount = 0.65;
@@ -256,10 +285,14 @@ MixPlan MixAdvisor::createPlan(
         const auto lowDifference =
             reference->spectrum.bassDb - reference->spectrum.midDb;
         double mixLowDifference = 0.0;
+        double mixLufs = 0.0;
         if (!project.tracks.empty()) {
-            for (const auto& track : project.tracks)
+            for (const auto& track : project.tracks) {
                 mixLowDifference += track.metrics.spectrum.bassDb - track.metrics.spectrum.midDb;
+                mixLufs += track.metrics.integratedLufs;
+            }
             mixLowDifference /= static_cast<double>(project.tracks.size());
+            mixLufs /= static_cast<double>(project.tracks.size());
         }
         plan.masterProcessing.equalizer.lowShelfGainDb =
             std::clamp((lowDifference - mixLowDifference) * 0.15, -1.5, 1.5);
@@ -271,6 +304,27 @@ MixPlan MixAdvisor::createPlan(
             "The reference changes only the direction of the broad master contour. "
             "Correction is capped at 1.5 dB and must be judged with loudness-matched A/B.",
             0.72);
+        addSuggestion(
+            plan,
+            SuggestionKind::qualityControl,
+            {},
+            "Match loudness before judging the reference",
+            "Approximate stem-average loudness is "
+                + std::to_string(mixLufs)
+                + " LUFS versus reference "
+                + std::to_string(reference->integratedLufs)
+                + " LUFS. Level-match before deciding tonal changes.",
+            0.8);
+        if (reference->crestFactorDb + 2.0 < 6.0) {
+            addSuggestion(
+                plan,
+                SuggestionKind::dynamics,
+                {},
+                "Do not chase crushed crest",
+                "The reference is denser than a healthy transient target. Preserve kick/snare "
+                "shape instead of matching crest factor.",
+                0.86);
+        }
     }
 
     return plan;

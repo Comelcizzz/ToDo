@@ -1,0 +1,68 @@
+name: ci
+
+on:
+  push:
+    branches: [master, "cursor/**"]
+  pull_request:
+
+jobs:
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ cmake ninja-build
+      - name: Configure and test core
+        run: |
+          cmake -S . -B build/core -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++ \
+            -DMASTERING_AUDIO_BUILD_PRODUCTS=OFF \
+            -DMASTERING_AUDIO_BUILD_TESTS=ON
+          cmake --build build/core --parallel
+          ctest --test-dir build/core --output-on-failure
+
+  windows-products:
+    runs-on: windows-latest
+    needs: [ui, core]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Configure products
+        shell: bash
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 \
+            -DMASTERING_AUDIO_BUILD_PRODUCTS=ON \
+            -DMASTERING_AUDIO_BUILD_TESTS=ON
+      - name: Build and test
+        shell: bash
+        run: |
+          cmake --build build --config Release --parallel
+          ctest --test-dir build -C Release --output-on-failure
+      - name: Package
+        shell: pwsh
+        run: ./scripts/package-windows.ps1 -BuildDir build -OutDir dist/windows -Config Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mastering-audio-suite-windows
+          path: dist/windows/MasteringAudioSuite-windows-x64.zip

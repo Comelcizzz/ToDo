@@ -41,7 +41,10 @@ AnalyzerProcessor::AnalyzerProcessor()
         .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       state_(*this, nullptr, "AnalyzerState", createParameters())
 {
-    state_.state.setProperty("instanceId", project::makeProjectId(), nullptr);
+    state_.state.setProperty(
+        "instanceId",
+        juce::String(project::makeProjectId()),
+        nullptr);
     state_.state.setProperty("projectId", "", nullptr);
     bridge_.start();
 }
@@ -162,7 +165,7 @@ void AnalyzerProcessor::publishAnalysis(bool writeSidecarWhenOffline)
     report->setProperty("type", "track-analysis");
     report->setProperty("instanceId", state_.state.getProperty("instanceId"));
     report->setProperty("projectId", state_.state.getProperty("projectId"));
-    report->setProperty("role", project::roleToString(role()));
+    report->setProperty("role", juce::String(project::roleToString(role())));
     report->setProperty(
         "metrics",
         juce::JSON::parse(juce::String(analysis::toJson(metrics()))));

@@ -1,7 +1,7 @@
 :root {
   color: #f5f7fb;
   background: #090b10;
-  font-family: "Manrope", system-ui, sans-serif;
+  font-family: "Sora", "Avenir Next", "Segoe UI Variable", sans-serif;
   font-synthesis: none;
   --panel: #11151d;
   --panel-raised: #171c25;
@@ -49,7 +49,7 @@ p {
 
 .eyebrow {
   color: var(--accent);
-  font-family: "DM Mono", monospace;
+  font-family: "IBM Plex Mono", "Cascadia Mono", "Consolas", monospace;
   font-size: 0.68rem;
   letter-spacing: 0.13em;
   text-transform: uppercase;
@@ -127,7 +127,7 @@ p {
   border-radius: 9px;
   color: var(--accent);
   background: #18210d;
-  font-family: "DM Mono", monospace;
+  font-family: "IBM Plex Mono", "Cascadia Mono", "Consolas", monospace;
   font-size: 0.76rem;
 }
 
@@ -236,7 +236,7 @@ p {
   gap: 13px;
   padding: 10px 14px;
   color: #9da7b7;
-  font-family: "DM Mono", monospace;
+  font-family: "IBM Plex Mono", "Cascadia Mono", "Consolas", monospace;
   font-size: 0.67rem;
 }
 
@@ -344,7 +344,7 @@ p {
   border-radius: 7px;
   color: #071012;
   background: var(--cyan);
-  font-family: "DM Mono", monospace;
+  font-family: "IBM Plex Mono", "Cascadia Mono", "Consolas", monospace;
   font-size: 0.6rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -404,7 +404,7 @@ p {
 
 .compact-control span {
   color: var(--muted);
-  font-family: "DM Mono", monospace;
+  font-family: "IBM Plex Mono", "Cascadia Mono", "Consolas", monospace;
   font-size: 0.58rem;
 }
 
@@ -468,7 +468,7 @@ input[type="range"] {
   display: flex;
   justify-content: space-between;
   color: var(--accent);
-  font-family: "DM Mono", monospace;
+  font-family: "IBM Plex Mono", "Cascadia Mono", "Consolas", monospace;
   font-size: 0.55rem;
   text-transform: uppercase;
 }
@@ -502,7 +502,7 @@ input[type="range"] {
   border: 1px solid #343d49;
   border-radius: 20px;
   color: var(--muted);
-  font-family: "DM Mono", monospace;
+  font-family: "IBM Plex Mono", "Cascadia Mono", "Consolas", monospace;
   font-size: 0.58rem;
 }
 
@@ -562,7 +562,7 @@ input[type="range"] {
 
 .metric-card strong {
   margin: 6px 0 1px;
-  font-family: "DM Mono", monospace;
+  font-family: "IBM Plex Mono", "Cascadia Mono", "Consolas", monospace;
   font-size: 1.1rem;
 }
 
@@ -586,7 +586,7 @@ input[type="range"] {
 
 .meter__header strong {
   color: #d9dee7;
-  font-family: "DM Mono", monospace;
+  font-family: "IBM Plex Mono", "Cascadia Mono", "Consolas", monospace;
   font-weight: 500;
 }
 
