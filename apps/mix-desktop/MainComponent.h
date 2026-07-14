@@ -34,6 +34,7 @@ private:
     void chooseStems();
     void chooseReference();
     void chooseMasterDestination(int bitsPerSample);
+    void chooseResearchDestination();
     void importStems(const juce::Array<juce::File>& files);
     void saveProject(bool chooseDestination);
     void openProject(const juce::File& file);

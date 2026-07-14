@@ -37,9 +37,21 @@ jobs:
           cmake --build build/core --parallel
           ctest --test-dir build/core --output-on-failure
 
+  ml-research:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ml/pyproject.toml
+      - run: python -m pip install ./ml
+      - run: python -m unittest discover -s ml/tests -v
+
   windows-products:
     runs-on: windows-latest
-    needs: [ui, core]
+    needs: [ui, core, ml-research]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

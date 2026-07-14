@@ -11,6 +11,7 @@ describe("Mastering Audio UI", () => {
     render(<App />);
     expect(screen.getByText("Stem Mix Suite")).toBeInTheDocument();
     expect(screen.getByText("Drop exported FL Studio stems here")).toBeInTheDocument();
+    expect(screen.getByText("Export ML example")).toBeDisabled();
   });
 
   it("shows analyzer metrics in plugin mode", () => {

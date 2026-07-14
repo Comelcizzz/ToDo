@@ -33,6 +33,13 @@ export function MixerView({ state }: { state: SuiteState }) {
           <button onClick={() => sendCommand({ type: "import-reference" })}>
             Add reference
           </button>
+          <button
+            disabled={state.tracks.length === 0}
+            title="Exports metrics and approved settings only—never audio, names, or file paths"
+            onClick={() => sendCommand({ type: "export-research-example" })}
+          >
+            Export ML example
+          </button>
         </nav>
 
         <div className="sidebar__status">

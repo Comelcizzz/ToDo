@@ -21,6 +21,7 @@ export type NativeCommand =
   | { type: "save-project" }
   | { type: "import-stems" }
   | { type: "import-reference" }
+  | { type: "export-research-example" }
   | { type: "analyze" }
   | { type: "generate-mix-plan" }
   | { type: "select-variant"; variant: string }

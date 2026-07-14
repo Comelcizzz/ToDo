@@ -22,6 +22,7 @@ Shared C++ core modules:
 - `modules/dsp` — EQ / compressor / saturation / clipper, true-peak limiter, kick→bass separation
 - `modules/assistant` — role-aware explainable mix plans (balanced / punchy / vocal-forward)
 - `modules/project-bridge` — `.masuite` project schema and stem role inference
+- `modules/research-export` + `ml/` — private metadata export and explainable offline ML research
 
 ## Quick start (developer)
 
@@ -35,6 +36,8 @@ ctest --test-dir build --output-on-failure
 
 Windows release packaging is described in [docs/PACKAGING.md](docs/PACKAGING.md).
 FL Studio routing/export steps are in [docs/FL_STUDIO_WORKFLOW.md](docs/FL_STUDIO_WORKFLOW.md).
+ML dataset, training, evaluation, and privacy rules are in
+[docs/ML_RESEARCH.md](docs/ML_RESEARCH.md).
 
 ## Licensing
 

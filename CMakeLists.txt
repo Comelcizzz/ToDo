@@ -25,6 +25,7 @@ add_library(mastering_audio_core STATIC
     modules/dsp/src/DynamicTools.cpp
     modules/assistant/src/MixAdvisor.cpp
     modules/project-bridge/src/ProjectDocument.cpp
+    modules/research-export/src/ResearchExample.cpp
 )
 
 target_include_directories(mastering_audio_core
@@ -33,6 +34,7 @@ target_include_directories(mastering_audio_core
         modules/dsp/include
         modules/assistant/include
         modules/project-bridge/include
+        modules/research-export/include
 )
 
 target_compile_features(mastering_audio_core PUBLIC cxx_std_23)
@@ -59,6 +61,7 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tests/ProcessorChainTests.cpp
         tests/ProjectDocumentTests.cpp
         tests/RenderPathTests.cpp
+        tests/ResearchExampleTests.cpp
     )
     target_link_libraries(mastering_audio_tests
         PRIVATE

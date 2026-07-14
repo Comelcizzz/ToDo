@@ -1,4 +1,5 @@
 #include "mix-desktop/MainComponent.h"
+#include "mastering/research/ResearchExample.h"
 
 #include <algorithm>
 
@@ -106,6 +107,8 @@ void MainComponent::handleCommand(const juce::var& command)
         chooseStems();
     } else if (type == "import-reference") {
         chooseReference();
+    } else if (type == "export-research-example") {
+        chooseResearchDestination();
     } else if (type == "toggle-playback") {
         engine_.togglePlayback();
     } else if (type == "toggle-ab") {
@@ -342,6 +345,45 @@ void MainComponent::chooseMasterDestination(int bitsPerSample)
                     juce::MessageBoxIconType::WarningIcon,
                     "Export failed",
                     error);
+            }
+        });
+}
+
+void MainComponent::chooseResearchDestination()
+{
+    if (project_.tracks.empty()) {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::InfoIcon,
+            "No research example",
+            "Import stems and approve the mix settings before exporting a training example.");
+        return;
+    }
+
+    fileChooser_ = std::make_unique<juce::FileChooser>(
+        "Export anonymous ML research example",
+        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+            .getChildFile(juce::String(project_.name) + ".research.json"),
+        "*.json");
+    juce::Component::SafePointer<MainComponent> safeThis(this);
+    fileChooser_->launchAsync(
+        juce::FileBrowserComponent::saveMode
+            | juce::FileBrowserComponent::canSelectFiles
+            | juce::FileBrowserComponent::warnAboutOverwriting,
+        [safeThis](const juce::FileChooser& chooser) {
+            if (safeThis == nullptr || chooser.getResult().getFullPathName().isEmpty())
+                return;
+
+            const research::ExportOptions options {
+                assistant::mixVariantToString(safeThis->selectedVariant_),
+                true
+            };
+            const auto source = research::serializeExample(safeThis->project_, options);
+            const auto destination = chooser.getResult().withFileExtension("json");
+            if (!destination.replaceWithText(juce::String(source))) {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon,
+                    "Research export failed",
+                    "The metadata file could not be written.");
             }
         });
 }
