@@ -21,8 +21,10 @@ const char* metricAvailabilityToString(MetricAvailability state) noexcept
     case MetricAvailability::warmingUp: return "warmingUp";
     case MetricAvailability::valid: return "valid";
     case MetricAvailability::provisional: return "provisional";
+    case MetricAvailability::unverified: return "unverified";
     case MetricAvailability::stale: return "stale";
     case MetricAvailability::degraded: return "degraded";
+    case MetricAvailability::invalidInput: return "invalidInput";
     }
     return "unavailable";
 }
@@ -36,12 +38,9 @@ double LoudnessMeter::powerToLufs(double meanSquarePower) noexcept
 
 double LoudnessMeter::channelWeight(int channel, int channelCount) noexcept
 {
-    if (channelCount <= 2)
+    // M1A: mono/stereo only — surround (5.1) weights are intentionally unused.
+    if (channelCount <= 2 && (channel == 0 || channel == 1))
         return 1.0;
-    if (channel == 3)
-        return 0.0;
-    if (channel == 4 || channel == 5)
-        return 1.41;
     return 1.0;
 }
 
@@ -129,7 +128,8 @@ void LoudnessMeter::configureFilters() noexcept
 void LoudnessMeter::prepare(double sampleRate, int maximumChannels, int maximumBlockSize) noexcept
 {
     sampleRate_ = sampleRate > 0.0 ? sampleRate : 48'000.0;
-    maximumChannels_ = std::clamp(maximumChannels, 1, 8);
+    // M1A officially supports mono and stereo only.
+    maximumChannels_ = std::clamp(maximumChannels, 1, 2);
     maximumBlockSize_ = std::max(1, maximumBlockSize);
     blockFrames_ = static_cast<std::size_t>(std::max<long>(1, std::lround(sampleRate_ * 0.4)));
     hopFrames_ = std::max<std::size_t>(1, blockFrames_ / 4);
@@ -138,15 +138,25 @@ void LoudnessMeter::prepare(double sampleRate, int maximumChannels, int maximumB
 
     shortTermEnergyRing_.assign(shortTermFrames_, 0.0);
     hopEnergyRing_.assign(hopsPerBlock_, 0.0);
-    constexpr std::size_t kMaxBlocks = 6 * 3600 * 10;
-    blockMeanSquares_.assign(kMaxBlocks, 0.0);
-    lraShortTermScratch_.assign(kMaxBlocks, 0.0);
-    lraGatedScratch_.assign(kMaxBlocks, 0.0);
+
+    // ≥ 6 hours at ~100 ms hop: 6 * 3600 * 10 blocks.
+    // integratedCapacitySeconds ≈ blockCapacity_ * (hopFrames_ / sampleRate_) ≈ blockCapacity_ * 0.1.
+    blockCapacity_ = 6 * 3600 * 10;
+    blockMeanSquares_.assign(blockCapacity_, 0.0);
+    shortTermLoudnessHistory_.assign(blockCapacity_, 0.0);
+    lraShortTermScratch_.assign(blockCapacity_, 0.0);
+    lraGatedScratch_.assign(blockCapacity_, 0.0);
     blockCount_ = 0;
     blockWrite_ = 0;
+    shortTermHistoryCount_ = 0;
+    shortTermHistoryWrite_ = 0;
 
     configureFilters();
     reset();
+
+    reading_.integratedCapacitySeconds =
+        static_cast<double>(blockCapacity_)
+        * (static_cast<double>(hopFrames_) / sampleRate_);
 }
 
 void LoudnessMeter::reset() noexcept
@@ -159,12 +169,17 @@ void LoudnessMeter::reset() noexcept
     samplePeak_ = 0.0;
     truePeak_ = 0.0;
     finalized_ = false;
+    programmeCapacityExceeded_ = false;
+    truePeakTailFlushed_ = false;
+    sawInvalidInput_ = false;
     truePeakSamplesSeen_ = 0;
     shortTermWrite_ = 0;
     shortTermFilled_ = 0;
     shortTermEnergySum_ = 0.0;
     blockCount_ = 0;
     blockWrite_ = 0;
+    shortTermHistoryCount_ = 0;
+    shortTermHistoryWrite_ = 0;
     lastChannelCount_ = 0;
     droppedAnalysisFrames_ = 0;
     reading_ = {};
@@ -174,6 +189,12 @@ void LoudnessMeter::reset() noexcept
     reading_.loudnessRangeState = MetricAvailability::stale;
     reading_.truePeakState = MetricAvailability::stale;
     reading_.samplePeakState = MetricAvailability::stale;
+    reading_.truePeakIsEstimate = true;
+    reading_.integratedCapacitySeconds =
+        sampleRate_ > 0.0
+            ? static_cast<double>(blockCapacity_)
+                * (static_cast<double>(hopFrames_) / sampleRate_)
+            : 0.0;
     for (int channel = 0; channel < maximumChannels_; ++channel) {
         channels_[static_cast<std::size_t>(channel)].shelf.reset();
         channels_[static_cast<std::size_t>(channel)].highPass.reset();
@@ -183,6 +204,8 @@ void LoudnessMeter::reset() noexcept
     }
     std::fill(shortTermEnergyRing_.begin(), shortTermEnergyRing_.end(), 0.0);
     std::fill(hopEnergyRing_.begin(), hopEnergyRing_.end(), 0.0);
+    std::fill(blockMeanSquares_.begin(), blockMeanSquares_.end(), 0.0);
+    std::fill(shortTermLoudnessHistory_.begin(), shortTermLoudnessHistory_.end(), 0.0);
 }
 
 void LoudnessMeter::noteDroppedAnalysisFrames(std::uint64_t count) noexcept
@@ -201,7 +224,26 @@ void LoudnessMeter::noteDroppedAnalysisFrames(std::uint64_t count) noexcept
     }
 }
 
-void LoudnessMeter::processTruePeak(
+void LoudnessMeter::accumulateSamplePeak(
+    const float* const* channels,
+    int channelCount,
+    int sampleCount) noexcept
+{
+    for (int sample = 0; sample < sampleCount; ++sample) {
+        for (int channel = 0; channel < channelCount; ++channel) {
+            const auto value = static_cast<double>(channels[channel][sample]);
+            if (!std::isfinite(value)) {
+                sawInvalidInput_ = true;
+                continue;
+            }
+            samplePeak_ = std::max(samplePeak_, std::abs(value));
+        }
+    }
+    if (!std::isfinite(samplePeak_))
+        samplePeak_ = 0.0;
+}
+
+void LoudnessMeter::reconstructTruePeak(
     const float* const* channels,
     int channelCount,
     int sampleCount) noexcept
@@ -217,7 +259,6 @@ void LoudnessMeter::processTruePeak(
             history[0] = static_cast<double>(channels[channel][sample]);
             if (!std::isfinite(history[0]))
                 history[0] = 0.0;
-            samplePeak_ = std::max(samplePeak_, std::abs(history[0]));
 
             for (int phase = 0; phase < kTruePeakPhases; ++phase) {
                 double interpolated = 0.0;
@@ -230,25 +271,69 @@ void LoudnessMeter::processTruePeak(
         }
         ++truePeakSamplesSeen_;
     }
-    if (!std::isfinite(samplePeak_))
-        samplePeak_ = 0.0;
     if (!std::isfinite(truePeak_))
         truePeak_ = 0.0;
 }
 
+void LoudnessMeter::flushTruePeakTail() noexcept
+{
+    if (truePeakTailFlushed_ || !truePeakReady_)
+        return;
+    truePeakTailFlushed_ = true;
+
+    const int channelsToFlush = std::clamp(
+        channelCount_ > 0 ? channelCount_ : maximumChannels_,
+        1,
+        maximumChannels_);
+
+    float silence[kTruePeakTaps] {};
+    const float* pointers[2] {silence, silence};
+    reconstructTruePeak(pointers, channelsToFlush, kTruePeakTaps);
+}
+
 void LoudnessMeter::pushBlockMeanSquare(double meanSquare) noexcept
 {
-    if (blockMeanSquares_.empty())
-        return;
-    blockMeanSquares_[blockWrite_] = meanSquare;
-    blockWrite_ = (blockWrite_ + 1) % blockMeanSquares_.size();
-    if (blockCount_ < blockMeanSquares_.size())
-        ++blockCount_;
-
     reading_.momentaryLufs = powerToLufs(meanSquare);
     reading_.momentaryValid = true;
-    reading_.momentaryState = MetricAvailability::valid;
-    recomputeIntegrated(false);
+    reading_.momentaryState = droppedAnalysisFrames_ > 0
+        ? MetricAvailability::degraded
+        : MetricAvailability::valid;
+
+    if (blockCapacity_ == 0 || blockMeanSquares_.empty()) {
+        recomputeIntegrated(finalized_);
+        return;
+    }
+
+    if (blockCount_ >= blockCapacity_) {
+        // No silent sliding — stop accepting new integrated blocks for programme integrity.
+        programmeCapacityExceeded_ = true;
+        reading_.programmeCapacityExceeded = true;
+        if (reading_.integratedState == MetricAvailability::provisional
+            || reading_.integratedState == MetricAvailability::valid
+            || reading_.integratedState == MetricAvailability::degraded) {
+            reading_.integratedState = MetricAvailability::degraded;
+        } else if (reading_.integratedValid) {
+            reading_.integratedState = MetricAvailability::degraded;
+        }
+        return;
+    }
+
+    blockMeanSquares_[blockWrite_] = meanSquare;
+    ++blockWrite_;
+    ++blockCount_;
+    recomputeIntegrated(finalized_);
+}
+
+void LoudnessMeter::pushShortTermLoudnessSample() noexcept
+{
+    if (!reading_.shortTermValid || shortTermLoudnessHistory_.empty())
+        return;
+    if (shortTermHistoryCount_ >= shortTermLoudnessHistory_.size())
+        return; // stop without sliding — preserve LRA programme integrity
+
+    shortTermLoudnessHistory_[shortTermHistoryWrite_] = reading_.shortTermLufs;
+    ++shortTermHistoryWrite_;
+    ++shortTermHistoryCount_;
 }
 
 void LoudnessMeter::emitHop() noexcept
@@ -271,6 +356,9 @@ void LoudnessMeter::emitHop() noexcept
     for (std::size_t index = 0; index < hopsPerBlock_; ++index)
         sum += hopEnergyRing_[index];
     pushBlockMeanSquare(sum / static_cast<double>(hopsPerBlock_));
+
+    if (reading_.shortTermValid)
+        pushShortTermLoudnessSample();
 }
 
 void LoudnessMeter::recomputeIntegrated(bool finalized) noexcept
@@ -285,13 +373,11 @@ void LoudnessMeter::recomputeIntegrated(bool finalized) noexcept
         return;
     }
 
-    const auto size = blockMeanSquares_.size();
-    const auto start = blockCount_ < size ? std::size_t {0} : blockWrite_;
-
+    // Linear fill only (no overwrite) — blocks occupy [0, blockCount_).
     double ungatedSum = 0.0;
     std::size_t ungatedCount = 0;
     for (std::size_t index = 0; index < blockCount_; ++index) {
-        const auto power = blockMeanSquares_[(start + index) % size];
+        const auto power = blockMeanSquares_[index];
         if (powerToLufs(power) >= kAbsoluteGateLufs) {
             ungatedSum += power;
             ++ungatedCount;
@@ -311,7 +397,7 @@ void LoudnessMeter::recomputeIntegrated(bool finalized) noexcept
     double gatedSum = 0.0;
     std::size_t gatedCount = 0;
     for (std::size_t index = 0; index < blockCount_; ++index) {
-        const auto power = blockMeanSquares_[(start + index) % size];
+        const auto power = blockMeanSquares_[index];
         if (powerToLufs(power) >= relativeGate) {
             gatedSum += power;
             ++gatedCount;
@@ -328,36 +414,29 @@ void LoudnessMeter::recomputeIntegrated(bool finalized) noexcept
     reading_.integratedLufs = powerToLufs(gatedSum / static_cast<double>(gatedCount));
     reading_.integratedValid = true;
     reading_.integratedProvisional = !finalized;
-    reading_.integratedState = finalized
-        ? MetricAvailability::valid
-        : MetricAvailability::provisional;
+    if (programmeCapacityExceeded_ || droppedAnalysisFrames_ > 0) {
+        reading_.integratedState = MetricAvailability::degraded;
+    } else {
+        reading_.integratedState = finalized
+            ? MetricAvailability::valid
+            : MetricAvailability::provisional;
+    }
 }
 
 void LoudnessMeter::recomputeLoudnessRange() noexcept
 {
-    // PARTIAL vs EBU Tech 3342: uses short-term approximation from integrated blocks.
-    if (blockCount_ < 2 || lraShortTermScratch_.empty()) {
+    // EBU Tech 3342 LRA from short-term loudness history (not block approximation).
+    // Official LRA status remains PARTIAL until vectors pass → state=unverified.
+    if (shortTermHistoryCount_ < 2 || lraShortTermScratch_.empty() || lraGatedScratch_.empty()) {
         reading_.loudnessRangeValid = false;
         reading_.loudnessRangeLu = 0.0;
         reading_.loudnessRangeState = MetricAvailability::unavailable;
         return;
     }
 
-    const auto size = blockMeanSquares_.size();
-    const auto start = blockCount_ < size ? std::size_t {0} : blockWrite_;
-    const auto shortTermBlocks = std::max<std::size_t>(1, hopsPerBlock_ * 7 + hopsPerBlock_ / 2);
-
-    std::size_t shortTermCount = 0;
-    for (std::size_t index = 0; index < blockCount_; ++index) {
-        const auto begin = index + 1 >= shortTermBlocks ? index + 1 - shortTermBlocks : 0;
-        double sum = 0.0;
-        std::size_t count = 0;
-        for (std::size_t block = begin; block <= index; ++block) {
-            sum += blockMeanSquares_[(start + block) % size];
-            ++count;
-        }
-        lraShortTermScratch_[shortTermCount++] = powerToLufs(sum / static_cast<double>(count));
-    }
+    const auto shortTermCount = shortTermHistoryCount_;
+    for (std::size_t index = 0; index < shortTermCount; ++index)
+        lraShortTermScratch_[index] = shortTermLoudnessHistory_[index];
 
     double absPowerSum = 0.0;
     std::size_t absCount = 0;
@@ -370,6 +449,7 @@ void LoudnessMeter::recomputeLoudnessRange() noexcept
     }
     if (absCount == 0) {
         reading_.loudnessRangeValid = false;
+        reading_.loudnessRangeLu = 0.0;
         reading_.loudnessRangeState = MetricAvailability::unavailable;
         return;
     }
@@ -383,6 +463,7 @@ void LoudnessMeter::recomputeLoudnessRange() noexcept
     }
     if (gatedCount < 2) {
         reading_.loudnessRangeValid = false;
+        reading_.loudnessRangeLu = 0.0;
         reading_.loudnessRangeState = MetricAvailability::unavailable;
         return;
     }
@@ -391,7 +472,7 @@ void LoudnessMeter::recomputeLoudnessRange() noexcept
     const auto upperIndex = static_cast<std::size_t>(0.95 * static_cast<double>(gatedCount - 1));
     reading_.loudnessRangeLu = lraGatedScratch_[upperIndex] - lraGatedScratch_[lowerIndex];
     reading_.loudnessRangeValid = true;
-    reading_.loudnessRangeState = MetricAvailability::valid;
+    reading_.loudnessRangeState = MetricAvailability::unverified;
 }
 
 void LoudnessMeter::refreshAvailabilityFlags() noexcept
@@ -400,24 +481,42 @@ void LoudnessMeter::refreshAvailabilityFlags() noexcept
     reading_.droppedAnalysisFrames = droppedAnalysisFrames_;
     reading_.samplePeakLinear = samplePeak_;
     reading_.truePeakLinear = truePeak_;
+    reading_.programmeCapacityExceeded = programmeCapacityExceeded_;
+    reading_.finalized = finalized_;
+    reading_.truePeakIsEstimate = true;
+    reading_.integratedCapacitySeconds =
+        sampleRate_ > 0.0
+            ? static_cast<double>(blockCapacity_)
+                * (static_cast<double>(hopFrames_) / sampleRate_)
+            : 0.0;
 
     if (totalFrames_ == 0) {
         reading_.samplePeakState = MetricAvailability::unavailable;
         reading_.truePeakState = MetricAvailability::unavailable;
+        reading_.truePeakValid = false;
     } else {
-        reading_.samplePeakState = droppedAnalysisFrames_ > 0
-            ? MetricAvailability::degraded
-            : MetricAvailability::valid;
+        if (sawInvalidInput_) {
+            reading_.samplePeakState = MetricAvailability::invalidInput;
+        } else {
+            reading_.samplePeakState = droppedAnalysisFrames_ > 0
+                ? MetricAvailability::degraded
+                : MetricAvailability::valid;
+        }
         if (truePeakSamplesSeen_ < static_cast<std::size_t>(kTruePeakWarmup)) {
             reading_.truePeakState = MetricAvailability::warmingUp;
             reading_.truePeakValid = false;
         } else {
+            // Numeric available; official TP vectors not passed → unverified estimate.
             reading_.truePeakValid = truePeakReady_;
-            reading_.truePeakState = reading_.truePeakValid
-                ? (droppedAnalysisFrames_ > 0
-                       ? MetricAvailability::degraded
-                       : MetricAvailability::valid)
-                : MetricAvailability::unavailable;
+            if (!reading_.truePeakValid) {
+                reading_.truePeakState = MetricAvailability::unavailable;
+            } else if (sawInvalidInput_) {
+                reading_.truePeakState = MetricAvailability::invalidInput;
+            } else if (droppedAnalysisFrames_ > 0) {
+                reading_.truePeakState = MetricAvailability::degraded;
+            } else {
+                reading_.truePeakState = MetricAvailability::unverified;
+            }
         }
     }
 
@@ -442,8 +541,14 @@ void LoudnessMeter::refreshAvailabilityFlags() noexcept
             : MetricAvailability::valid;
     }
 
-    if (!finalized_ && reading_.integratedValid)
+    if (!finalized_ && reading_.integratedValid && !programmeCapacityExceeded_
+        && droppedAnalysisFrames_ == 0) {
         reading_.integratedProvisional = true;
+        reading_.integratedState = MetricAvailability::provisional;
+    }
+
+    if (programmeCapacityExceeded_ && reading_.integratedValid)
+        reading_.integratedState = MetricAvailability::degraded;
 }
 
 void LoudnessMeter::process(
@@ -460,7 +565,14 @@ void LoudnessMeter::process(
         sampleCount = maximumBlockSize_;
     }
 
-    channelCount_ = std::min(channelCount, maximumChannels_);
+    // M1A: ignore channels beyond stereo; count ignored channel-samples as dropped analysis.
+    if (channelCount > maximumChannels_) {
+        noteDroppedAnalysisFrames(static_cast<std::uint64_t>(channelCount - maximumChannels_)
+            * static_cast<std::uint64_t>(sampleCount));
+        channelCount = maximumChannels_;
+    }
+
+    channelCount_ = channelCount;
     if (lastChannelCount_ != 0 && lastChannelCount_ != channelCount_) {
         // Channel layout change: reset filter/TP history to avoid smearing.
         for (int channel = 0; channel < maximumChannels_; ++channel) {
@@ -476,14 +588,17 @@ void LoudnessMeter::process(
         channels_[static_cast<std::size_t>(channel)].weight =
             channelWeight(channel, channelCount_);
 
-    processTruePeak(channels, channelCount_, sampleCount);
+    accumulateSamplePeak(channels, channelCount_, sampleCount);
+    reconstructTruePeak(channels, channelCount_, sampleCount);
 
     for (int sample = 0; sample < sampleCount; ++sample) {
         double weightedPower = 0.0;
         for (int channel = 0; channel < channelCount_; ++channel) {
             auto input = static_cast<double>(channels[channel][sample]);
-            if (!std::isfinite(input))
+            if (!std::isfinite(input)) {
+                sawInvalidInput_ = true;
                 input = 0.0;
+            }
             auto& state = channels_[static_cast<std::size_t>(channel)];
             const auto filtered = state.highPass.process(state.shelf.process(input));
             weightedPower += state.weight * filtered * filtered;
@@ -505,7 +620,9 @@ void LoudnessMeter::process(
                 reading_.shortTermLufs =
                     powerToLufs(shortTermEnergySum_ / static_cast<double>(shortTermFrames_));
                 reading_.shortTermValid = true;
-                reading_.shortTermState = MetricAvailability::valid;
+                reading_.shortTermState = droppedAnalysisFrames_ > 0
+                    ? MetricAvailability::degraded
+                    : MetricAvailability::valid;
             }
         }
 
@@ -526,6 +643,13 @@ void LoudnessMeter::process(
 
 void LoudnessMeter::finalize() noexcept
 {
+    if (finalized_) {
+        reading_.finalized = true;
+        reading_.integratedProvisional = false;
+        reading_.programmeCapacityExceeded = programmeCapacityExceeded_;
+        return;
+    }
+
     if (framesInHop_ > 0) {
         hopEnergyRing_[hopWrite_] =
             hopEnergy_ / static_cast<double>(std::max<std::size_t>(1, framesInHop_));
@@ -537,17 +661,25 @@ void LoudnessMeter::finalize() noexcept
             for (std::size_t index = 0; index < hopsPerBlock_; ++index)
                 sum += hopEnergyRing_[index];
             pushBlockMeanSquare(sum / static_cast<double>(hopsPerBlock_));
+            if (reading_.shortTermValid)
+                pushShortTermLoudnessSample();
         }
         framesInHop_ = 0;
         hopEnergy_ = 0.0;
     }
+
+    flushTruePeakTail();
     finalized_ = true;
     recomputeIntegrated(true);
     recomputeLoudnessRange();
     refreshAvailabilityFlags();
     reading_.integratedProvisional = false;
-    if (reading_.integratedValid)
-        reading_.integratedState = MetricAvailability::valid;
+    reading_.finalized = true;
+    if (reading_.integratedValid) {
+        reading_.integratedState = (programmeCapacityExceeded_ || droppedAnalysisFrames_ > 0)
+            ? MetricAvailability::degraded
+            : MetricAvailability::valid;
+    }
 }
 
 LoudnessReading LoudnessMeter::snapshot() const noexcept
