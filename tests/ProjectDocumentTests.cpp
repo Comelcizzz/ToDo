@@ -1,6 +1,7 @@
 #include "mastering/assistant/MixAdvisor.h"
 #include "mastering/project/ProjectDocument.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 TEST_CASE("Project documents round trip without losing track state", "[project]")

@@ -1,0 +1,59 @@
+#pragma once
+
+#include "mix-desktop/BridgeServer.h"
+#include "mix-desktop/StemEngine.h"
+#include "shared/WebViewComponent.h"
+
+#include <juce_audio_utils/juce_audio_utils.h>
+#include <optional>
+
+namespace mastering::desktop {
+
+class MainComponent final : public juce::AudioAppComponent,
+                            public juce::FileDragAndDropTarget,
+                            private juce::Timer {
+public:
+    MainComponent();
+    ~MainComponent() override;
+
+    void prepareToPlay(int samplesPerBlockExpected, double sampleRate) override;
+    void getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill) override;
+    void releaseResources() override;
+    void resized() override;
+
+    bool isInterestedInFileDrag(const juce::StringArray& files) override;
+    void filesDropped(const juce::StringArray& files, int x, int y) override;
+
+private:
+    void timerCallback() override;
+    void handleCommand(const juce::var& command);
+    void handleBridgeAnalysis(const juce::var& report);
+    void createProject();
+    void chooseProjectToOpen();
+    void chooseStems();
+    void chooseReference();
+    void chooseMasterDestination();
+    void importStems(const juce::Array<juce::File>& files);
+    void saveProject(bool chooseDestination);
+    void openProject(const juce::File& file);
+    void generateMixPlan();
+    void applyMixPlan();
+    void pushState();
+    [[nodiscard]] std::optional<analysis::AudioMetrics> analyzeReference(
+        const juce::File& file) const;
+    [[nodiscard]] project::TrackRecord* findTrack(const juce::String& id);
+
+    app::WebViewComponent webView_ {app::WebViewComponent::Product::desktopSuite};
+    StemEngine engine_;
+    BridgeServer bridge_;
+    assistant::MixAdvisor advisor_;
+    project::ProjectDocument project_;
+    assistant::MixPlan currentPlan_;
+    std::optional<analysis::AudioMetrics> referenceMetrics_;
+    juce::File projectFile_;
+    std::unique_ptr<juce::FileChooser> fileChooser_;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
+};
+
+} // namespace mastering::desktop

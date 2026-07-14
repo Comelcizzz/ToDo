@@ -1,0 +1,188 @@
+#include "analyzer-plugin/PluginProcessor.h"
+#include "analyzer-plugin/PluginEditor.h"
+
+#include <array>
+#include <ranges>
+
+namespace mastering::plugin {
+namespace {
+
+const std::array roleValues {
+    project::TrackRole::custom,
+    project::TrackRole::drums,
+    project::TrackRole::kick,
+    project::TrackRole::snare,
+    project::TrackRole::toms,
+    project::TrackRole::cymbals,
+    project::TrackRole::bass,
+    project::TrackRole::rhythmGuitar,
+    project::TrackRole::leadGuitar,
+    project::TrackRole::cleanVocal,
+    project::TrackRole::screamVocal,
+    project::TrackRole::backingVocal,
+    project::TrackRole::synth,
+    project::TrackRole::orchestra,
+    project::TrackRole::effects
+};
+
+juce::StringArray roleNames()
+{
+    juce::StringArray names;
+    for (const auto role : roleValues)
+        names.add(project::roleToString(role));
+    return names;
+}
+
+} // namespace
+
+AnalyzerProcessor::AnalyzerProcessor()
+    : AudioProcessor(BusesProperties()
+        .withInput("Input", juce::AudioChannelSet::stereo(), true)
+        .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
+      state_(*this, nullptr, "AnalyzerState", createParameters())
+{
+    state_.state.setProperty("instanceId", project::makeProjectId(), nullptr);
+    state_.state.setProperty("projectId", "", nullptr);
+    bridge_.start();
+}
+
+AnalyzerProcessor::~AnalyzerProcessor() = default;
+
+juce::AudioProcessorValueTreeState::ParameterLayout AnalyzerProcessor::createParameters()
+{
+    juce::AudioProcessorValueTreeState::ParameterLayout layout;
+    layout.add(std::make_unique<juce::AudioParameterChoice>(
+        juce::ParameterID {"role", 1},
+        "Signal role",
+        roleNames(),
+        0));
+    return layout;
+}
+
+void AnalyzerProcessor::prepareToPlay(double sampleRate, int)
+{
+    meter_.prepare(sampleRate);
+}
+
+void AnalyzerProcessor::releaseResources()
+{
+}
+
+bool AnalyzerProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
+{
+    const auto input = layouts.getMainInputChannelSet();
+    return (input == juce::AudioChannelSet::mono() || input == juce::AudioChannelSet::stereo())
+        && layouts.getMainOutputChannelSet() == input;
+}
+
+void AnalyzerProcessor::processBlock(
+    juce::AudioBuffer<float>& buffer,
+    juce::MidiBuffer&)
+{
+    juce::ScopedNoDenormals noDenormals;
+    meter_.process(
+        buffer.getArrayOfReadPointers(),
+        buffer.getNumChannels(),
+        buffer.getNumSamples());
+}
+
+juce::AudioProcessorEditor* AnalyzerProcessor::createEditor()
+{
+    return new AnalyzerEditor(*this);
+}
+
+bool AnalyzerProcessor::hasEditor() const { return true; }
+const juce::String AnalyzerProcessor::getName() const { return JucePlugin_Name; }
+double AnalyzerProcessor::getTailLengthSeconds() const { return 0.0; }
+bool AnalyzerProcessor::acceptsMidi() const { return false; }
+bool AnalyzerProcessor::producesMidi() const { return false; }
+bool AnalyzerProcessor::isMidiEffect() const { return false; }
+int AnalyzerProcessor::getNumPrograms() { return 1; }
+int AnalyzerProcessor::getCurrentProgram() { return 0; }
+void AnalyzerProcessor::setCurrentProgram(int) {}
+const juce::String AnalyzerProcessor::getProgramName(int) { return {}; }
+void AnalyzerProcessor::changeProgramName(int, const juce::String&) {}
+
+void AnalyzerProcessor::getStateInformation(juce::MemoryBlock& destination)
+{
+    if (const auto xml = state_.copyState().createXml())
+        copyXmlToBinary(*xml, destination);
+}
+
+void AnalyzerProcessor::setStateInformation(const void* data, int sizeInBytes)
+{
+    if (const auto xml = getXmlFromBinary(data, sizeInBytes)) {
+        const auto restored = juce::ValueTree::fromXml(*xml);
+        if (restored.isValid())
+            state_.replaceState(restored);
+    }
+}
+
+analysis::AudioMetrics AnalyzerProcessor::metrics() const noexcept
+{
+    return meter_.snapshot();
+}
+
+project::TrackRole AnalyzerProcessor::role() const noexcept
+{
+    const auto* parameter = state_.getRawParameterValue("role");
+    const auto index = parameter != nullptr
+        ? juce::jlimit(0, static_cast<int>(roleValues.size() - 1), static_cast<int>(parameter->load()))
+        : 0;
+    return roleValues[static_cast<std::size_t>(index)];
+}
+
+void AnalyzerProcessor::setRole(project::TrackRole role)
+{
+    const auto iterator = std::ranges::find(roleValues, role);
+    if (iterator == roleValues.end())
+        return;
+    const auto index = static_cast<int>(std::distance(roleValues.begin(), iterator));
+    if (auto* parameter = state_.getParameter("role")) {
+        parameter->beginChangeGesture();
+        parameter->setValueNotifyingHost(
+            parameter->convertTo0to1(static_cast<float>(index)));
+        parameter->endChangeGesture();
+    }
+}
+
+bool AnalyzerProcessor::bridgeConnected() const noexcept
+{
+    return bridge_.connected();
+}
+
+juce::String AnalyzerProcessor::projectId() const
+{
+    return state_.state.getProperty("projectId").toString();
+}
+
+void AnalyzerProcessor::publishAnalysis(bool writeSidecarWhenOffline)
+{
+    auto report = juce::DynamicObject::Ptr(new juce::DynamicObject());
+    report->setProperty("type", "track-analysis");
+    report->setProperty("instanceId", state_.state.getProperty("instanceId"));
+    report->setProperty("projectId", state_.state.getProperty("projectId"));
+    report->setProperty("role", project::roleToString(role()));
+    report->setProperty(
+        "metrics",
+        juce::JSON::parse(juce::String(analysis::toJson(metrics()))));
+    const auto json = juce::JSON::toString(juce::var(report.get()), false);
+
+    if (bridge_.sendJson(json) || !writeSidecarWhenOffline)
+        return;
+
+    const auto reportDirectory = juce::File::getSpecialLocation(
+        juce::File::userDocumentsDirectory)
+        .getChildFile("Mastering Audio Reports");
+    reportDirectory.createDirectory();
+    reportDirectory
+        .getChildFile(state_.state.getProperty("instanceId").toString() + ".analysis.json")
+        .replaceWithText(json);
+}
+
+} // namespace mastering::plugin
+
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
+{
+    return new mastering::plugin::AnalyzerProcessor();
+}

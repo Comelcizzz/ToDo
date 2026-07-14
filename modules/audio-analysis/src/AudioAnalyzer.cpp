@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <limits>
 #include <numeric>
+#include <ranges>
 #include <sstream>
 
 namespace mastering::analysis {
