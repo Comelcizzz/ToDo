@@ -67,7 +67,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout AnalyzerProcessor::createPar
 
 void AnalyzerProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    meter_.prepare(sampleRate);
+    meter_.prepare(sampleRate, samplesPerBlock);
     floatMeterScratch_.setSize(2, std::max(1, samplesPerBlock), false, false, true);
 }
 
@@ -109,17 +109,24 @@ void AnalyzerProcessor::processBlock(
         buffer.getArrayOfWritePointers(),
         channels,
         samples);
-    floatMeterScratch_.setSize(std::max(1, channels), std::max(1, samples), false, false, true);
-    for (int channel = 0; channel < channels; ++channel) {
+    // Never allocate on the audio thread: clamp to prepared scratch capacity.
+    const auto usableChannels = std::min(channels, floatMeterScratch_.getNumChannels());
+    const auto usableSamples = std::min(samples, floatMeterScratch_.getNumSamples());
+    if (usableSamples < samples || usableChannels < channels)
+        meter_.noteDroppedAnalysisFrames(static_cast<std::uint64_t>(
+            std::max(0, samples - usableSamples) * std::max(1, channels)));
+    if (usableSamples <= 0 || usableChannels <= 0)
+        return;
+    for (int channel = 0; channel < usableChannels; ++channel) {
         const auto* source = buffer.getReadPointer(channel);
         auto* destination = floatMeterScratch_.getWritePointer(channel);
-        for (int sample = 0; sample < samples; ++sample)
+        for (int sample = 0; sample < usableSamples; ++sample)
             destination[sample] = static_cast<float>(source[sample]);
     }
     meter_.process(
         floatMeterScratch_.getArrayOfReadPointers(),
-        channels,
-        samples);
+        usableChannels,
+        usableSamples);
 }
 
 juce::AudioProcessorEditor* AnalyzerProcessor::createEditor()

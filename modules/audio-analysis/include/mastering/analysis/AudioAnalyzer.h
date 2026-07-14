@@ -38,8 +38,16 @@ struct AudioMetrics {
     bool shortTermLufsIsValid {false};
     double integratedLufs {-120.0};
     bool integratedLufsIsValid {false};
+    bool integratedLufsIsProvisional {false};
     double loudnessRangeLu {0.0};
     bool loudnessRangeIsValid {false};
+
+    // Availability strings for UI (unavailable|warmingUp|valid|provisional|stale|degraded).
+    std::string momentaryState {"unavailable"};
+    std::string shortTermState {"unavailable"};
+    std::string integratedState {"unavailable"};
+    std::string truePeakState {"unavailable"};
+    std::uint64_t droppedAnalysisFrames {0};
 
     double crestFactorDb {0.0};
     double stereoCorrelation {1.0};
@@ -65,9 +73,11 @@ private:
 class RealtimeMeter {
 public:
     void prepare(double sampleRate) noexcept;
+    void prepare(double sampleRate, int maximumBlockSize) noexcept;
     void reset() noexcept;
     void process(const float* const* channels, int channelCount, int sampleCount) noexcept;
     [[nodiscard]] AudioMetrics snapshot() const noexcept;
+    void noteDroppedAnalysisFrames(std::uint64_t count) noexcept;
 
 private:
     LoudnessMeter loudness_;

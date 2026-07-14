@@ -18,17 +18,50 @@ const roles: TrackRole[] = [
   "custom",
 ];
 
-function formatDb(value: number | undefined, fallback = "—") {
+type MetricState =
+  | "unavailable"
+  | "warmingUp"
+  | "valid"
+  | "provisional"
+  | "stale"
+  | "degraded";
+
+function stateLabel(state: string | undefined, fallback: MetricState = "unavailable"): string {
+  switch (state as MetricState) {
+    case "warmingUp":
+      return "Warming up";
+    case "valid":
+      return "Valid";
+    case "provisional":
+      return "Provisional";
+    case "stale":
+      return "Stale";
+    case "degraded":
+      return "Degraded";
+    case "unavailable":
+    default:
+      return fallback === "warmingUp" ? "Warming up" : "Unavailable";
+  }
+}
+
+function formatWhenValid(
+  valid: boolean | undefined,
+  state: string | undefined,
+  value: number | undefined,
+): string {
+  if (state === "warmingUp")
+    return "Warming up";
+  if (state === "stale" || state === "unavailable" || !valid)
+    return "Unavailable";
   if (value === undefined || !Number.isFinite(value))
-    return fallback;
-  return value.toFixed(1);
+    return "Unavailable";
+  const suffix = state === "provisional" ? " (provisional)" : state === "degraded" ? " (degraded)" : "";
+  return `${value.toFixed(1)}${suffix}`;
 }
 
 export function AnalyzerView({ state }: { state: SuiteState }) {
   const metrics = state.analyzerMetrics ?? emptyMetrics;
-  const estimatedLoudness = metrics.estimatedLoudnessIsValid
-    ? (metrics.estimatedLoudnessDb ?? metrics.rmsDbfs)
-    : metrics.rmsDbfs;
+  const dropped = metrics.droppedAnalysisFrames ?? 0;
 
   return (
     <main className="plugin-layout">
@@ -67,43 +100,55 @@ export function AnalyzerView({ state }: { state: SuiteState }) {
       </section>
 
       <section className="metric-grid">
-        <div className="metric-card">
+        <div className="metric-card" data-state={metrics.momentaryState ?? "unavailable"}>
           <span>Momentary</span>
           <strong>
-            {metrics.momentaryLufsIsValid ? formatDb(metrics.momentaryLufs) : "—"}
+            {formatWhenValid(
+              metrics.momentaryLufsIsValid,
+              metrics.momentaryState,
+              metrics.momentaryLufs,
+            )}
           </strong>
-          <small>LUFS</small>
+          <small>{stateLabel(metrics.momentaryState)} · LUFS</small>
         </div>
-        <div className="metric-card">
+        <div className="metric-card" data-state={metrics.shortTermState ?? "unavailable"}>
           <span>Short-term</span>
           <strong>
-            {metrics.shortTermLufsIsValid ? formatDb(metrics.shortTermLufs) : "—"}
+            {formatWhenValid(
+              metrics.shortTermLufsIsValid,
+              metrics.shortTermState,
+              metrics.shortTermLufs,
+            )}
           </strong>
-          <small>LUFS</small>
+          <small>{stateLabel(metrics.shortTermState)} · LUFS</small>
         </div>
-        <div className="metric-card">
+        <div className="metric-card" data-state={metrics.integratedState ?? "unavailable"}>
           <span>Integrated</span>
           <strong>
-            {metrics.integratedLufsIsValid ? formatDb(metrics.integratedLufs) : "—"}
+            {formatWhenValid(
+              metrics.integratedLufsIsValid,
+              metrics.integratedState,
+              metrics.integratedLufs,
+            )}
           </strong>
-          <small>LUFS</small>
+          <small>{stateLabel(metrics.integratedState)} · LUFS</small>
         </div>
-        <div className="metric-card">
+        <div className="metric-card" data-state={metrics.truePeakState ?? "unavailable"}>
           <span>True Peak</span>
           <strong>
-            {metrics.truePeakValid ? formatDb(metrics.truePeakDbtp) : "—"}
+            {formatWhenValid(metrics.truePeakValid, metrics.truePeakState, metrics.truePeakDbtp)}
           </strong>
-          <small>dBTP</small>
+          <small>{stateLabel(metrics.truePeakState)} · dBTP</small>
         </div>
         <div className="metric-card">
           <span>Sample Peak</span>
           <strong>{metrics.samplePeakDbfs.toFixed(1)}</strong>
           <small>dBFS</small>
         </div>
-        <div className="metric-card">
-          <span>Estimated Loudness</span>
-          <strong>{estimatedLoudness.toFixed(1)}</strong>
-          <small>dBFS RMS</small>
+        <div className="metric-card" data-state={dropped > 0 ? "degraded" : "valid"}>
+          <span>Analysis frames dropped</span>
+          <strong>{dropped}</strong>
+          <small>{dropped > 0 ? "Degraded analysis" : "Healthy"}</small>
         </div>
       </section>
 

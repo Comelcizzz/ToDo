@@ -110,15 +110,21 @@ void applyLoudnessReading(AudioMetrics& metrics, const LoudnessReading& reading)
     metrics.truePeakDbtp = toDb(reading.truePeakLinear);
     metrics.truePeakValid = reading.truePeakValid;
     metrics.estimatedTruePeakDbtp = metrics.truePeakDbtp;
-    metrics.truePeakIsEstimate = false; // Milestone 1A: oversampled meter, not cubic estimate
+    metrics.truePeakIsEstimate = false;
     metrics.momentaryLufs = reading.momentaryLufs;
     metrics.momentaryLufsIsValid = reading.momentaryValid;
     metrics.shortTermLufs = reading.shortTermLufs;
     metrics.shortTermLufsIsValid = reading.shortTermValid;
     metrics.integratedLufs = reading.integratedLufs;
     metrics.integratedLufsIsValid = reading.integratedValid;
+    metrics.integratedLufsIsProvisional = reading.integratedProvisional;
     metrics.loudnessRangeLu = reading.loudnessRangeLu;
     metrics.loudnessRangeIsValid = reading.loudnessRangeValid;
+    metrics.momentaryState = metricAvailabilityToString(reading.momentaryState);
+    metrics.shortTermState = metricAvailabilityToString(reading.shortTermState);
+    metrics.integratedState = metricAvailabilityToString(reading.integratedState);
+    metrics.truePeakState = metricAvailabilityToString(reading.truePeakState);
+    metrics.droppedAnalysisFrames = reading.droppedAnalysisFrames;
 }
 
 } // namespace
@@ -137,7 +143,7 @@ AudioMetrics AudioAnalyzer::analyze(
         return result;
 
     LoudnessMeter meter;
-    meter.prepare(sampleRate, static_cast<int>(channels.size()));
+    meter.prepare(sampleRate, static_cast<int>(channels.size()), 1024);
     std::vector<const float*> pointers(channels.size());
     for (std::size_t channel = 0; channel < channels.size(); ++channel)
         pointers[channel] = channels[channel].data();
@@ -217,7 +223,14 @@ SpectrumProfile AudioAnalyzer::calculateSpectrum(std::span<const float> mono, do
 void RealtimeMeter::prepare(double sampleRate) noexcept
 {
     sampleRate_.store(sampleRate, std::memory_order_relaxed);
-    loudness_.prepare(sampleRate, 2);
+    loudness_.prepare(sampleRate, 2, 4096);
+    reset();
+}
+
+void RealtimeMeter::prepare(double sampleRate, int maximumBlockSize) noexcept
+{
+    sampleRate_.store(sampleRate, std::memory_order_relaxed);
+    loudness_.prepare(sampleRate, 2, maximumBlockSize);
     reset();
 }
 
@@ -283,6 +296,11 @@ void RealtimeMeter::process(
     channelCount_.store(channelCount, std::memory_order_relaxed);
 }
 
+void RealtimeMeter::noteDroppedAnalysisFrames(std::uint64_t count) noexcept
+{
+    loudness_.noteDroppedAnalysisFrames(count);
+}
+
 AudioMetrics RealtimeMeter::snapshot() const noexcept
 {
     AudioMetrics metrics;
@@ -334,7 +352,13 @@ std::string toJson(const AudioMetrics& metrics)
            << R"(,"momentaryLufsIsValid":)" << (metrics.momentaryLufsIsValid ? "true" : "false")
            << R"(,"shortTermLufsIsValid":)" << (metrics.shortTermLufsIsValid ? "true" : "false")
            << R"(,"integratedLufsIsValid":)" << (metrics.integratedLufsIsValid ? "true" : "false")
-           << R"(,"loudnessRangeIsValid":)" << (metrics.loudnessRangeIsValid ? "true" : "false");
+           << R"(,"integratedLufsIsProvisional":)" << (metrics.integratedLufsIsProvisional ? "true" : "false")
+           << R"(,"loudnessRangeIsValid":)" << (metrics.loudnessRangeIsValid ? "true" : "false")
+           << R"(,"momentaryState":")" << metrics.momentaryState << '"'
+           << R"(,"shortTermState":")" << metrics.shortTermState << '"'
+           << R"(,"integratedState":")" << metrics.integratedState << '"'
+           << R"(,"truePeakState":")" << metrics.truePeakState << '"'
+           << R"(,"droppedAnalysisFrames":)" << metrics.droppedAnalysisFrames;
     if (metrics.truePeakValid)
         output << R"(,"truePeakDbtp":)" << metrics.truePeakDbtp;
     if (metrics.truePeakIsEstimate)

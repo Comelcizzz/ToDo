@@ -30,8 +30,14 @@ export interface AudioMetrics {
   shortTermLufsIsValid?: boolean;
   integratedLufs?: number;
   integratedLufsIsValid?: boolean;
+  integratedLufsIsProvisional?: boolean;
   loudnessRangeLu?: number;
   loudnessRangeIsValid?: boolean;
+  momentaryState?: string;
+  shortTermState?: string;
+  integratedState?: string;
+  truePeakState?: string;
+  droppedAnalysisFrames?: number;
   crestFactorDb: number;
   stereoCorrelation: number;
   transientDensityHz: number;
@@ -87,7 +93,13 @@ export const emptyMetrics: AudioMetrics = {
   momentaryLufsIsValid: false,
   shortTermLufsIsValid: false,
   integratedLufsIsValid: false,
+  integratedLufsIsProvisional: false,
   loudnessRangeIsValid: false,
+  momentaryState: "unavailable",
+  shortTermState: "unavailable",
+  integratedState: "unavailable",
+  truePeakState: "unavailable",
+  droppedAnalysisFrames: 0,
   crestFactorDb: 0,
   stereoCorrelation: 1,
   transientDensityHz: 0,

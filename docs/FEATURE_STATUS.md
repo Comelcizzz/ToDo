@@ -1,38 +1,29 @@
 # Feature status
 
-Statuses (only these values): `IMPLEMENTED` | `PARTIAL` | `STUB` | `MOCK` | `MISSING`
+Statuses: `IMPLEMENTED` | `PARTIAL` | `STUB` | `MOCK` | `MISSING`
 
-Updated after Milestone 0 verification + Milestone 1A metering start.
+Updated after M1A hardening (post-`4b95074` audit).
 
 | Feature | Status | Evidence | Limitation |
 |---|---|---|---|
-| Analyzer float pass-through | IMPLEMENTED | `PassThroughPolicy` + bit-transparency tests | NaN/Inf → 0 |
-| Analyzer double pass-through | IMPLEMENTED | Double `processBlock` + tests | Meter via float scratch |
-| Shared LoudnessMeter core | IMPLEMENTED | `LoudnessMeter` used by offline + RT | Official EBU WAVs not bundled |
-| Sample peak | IMPLEMENTED | Analyzer + tests | — |
-| True-peak meter (4×) | PARTIAL | `truePeakValid` + ISP relative test | Not yet validated on official Annex 2 vectors |
-| Momentary / short-term / integrated LUFS | PARTIAL | Synthetic −23 tone ±0.5 LU; invariance tests | Official Tech 3341 vectors pending local fetch |
-| LRA | PARTIAL | Computed in `finalize()` | Needs Tech 3342 official vectors |
-| RT / offline shared metering | PARTIAL | Same `LoudnessMeter`; ST/M match test | Integrated finalize differs on RT stream |
-| Honest RT labels | IMPLEMENTED | Validity-gated LUFS/TP fields | Empty UI shows — until window valid |
-| Stem import replace | IMPLEMENTED | Engine clear-then-replace | — |
-| MixAdvisor absolute Apply | IMPLEMENTED | Absolute gain + ProcessorSettings | Plan-level UI |
-| Per-action Apply | PARTIAL | Absolute Action list | No single-action UI control |
-| Per-action Reject | PARTIAL | Reject-before-Apply only | No Undo yet |
-| Per-action Edit | PARTIAL | Edit targets then re-Apply | No dedicated edit UI |
-| Persistent Action state | IMPLEMENTED | `.masuite` actions + previous snapshot | Undo command missing |
-| Project schema v2 | IMPLEMENTED | Reject newer; migrate v1 | — |
-| Full project restore | PARTIAL | Tracks/gains/processing/actions | No pairs/sections yet |
-| IPC bridge | PARTIAL | Schema validation | No heartbeat/queue hardening |
-| Sidecar writer | PARTIAL | Analyzer offline write | — |
-| Sidecar Suite reader | MISSING | — | — |
-| ZIP packaging | IMPLEMENTED | CI `mastering-audio-suite-windows` | Not an installer; WebView2 Runtime not bundled |
-| Actual installer | MISSING | — | After M1 / early M2 |
-| Mix Node | MISSING | — | After 1B |
-| ML CLI | PARTIAL | `ml/` research | Not MixAdvisor |
+| Analyzer float/double pass-through | IMPLEMENTED | bit-transparency tests; double scratch capped in prepare | Oversize blocks clamp analysis |
+| Sample peak | IMPLEMENTED | LoudnessMeter + tests | — |
+| True-peak meter | PARTIAL | 4× polyphase windowed-sinc; block-boundary/atypical size tests | Not ITU published coeffs; no official ISP vectors in CI |
+| Momentary LUFS | PARTIAL | 400 ms window; warmingUp until ready | Official Tech 3341 WAV absent |
+| Short-term LUFS | PARTIAL | 3 s window; warmingUp until ready | Official vectors absent |
+| Integrated LUFS | PARTIAL | BS.1770 gating; RT=`provisional`, finalize=`valid` | Official vectors absent; RT provisional until finalize |
+| LRA | PARTIAL | Percentile algorithm on ST approx; finalize-only | Not Tech 3342 certified; no official LRA vectors |
+| RT/offline shared core | IMPLEMENTED | Same LoudnessMeter | Integrated provisional differs until finalize |
+| Block/SR invariance matrix | PARTIAL | `metering-validation.json/.md` artifact | Expanded SR/block matrix for TP; LUFS subset |
+| Official EBU/ITU vectors | MISSING | `manifest.json` + fetch script | Files not redistributed; compliance blocked |
+| Analyzer UI states | IMPLEMENTED | Warming up / Provisional / Unavailable / Degraded + dropped frames | No screenshot pack in CI |
+| Audio-thread safety | PARTIAL | No alloc/lock/IO in process after prepare; publish on UI timer | No ASan audio-thread guard in CI yet |
+| ZIP packaging | IMPLEMENTED | CI artifact | Not installer |
+| Actual installer | MISSING | — | — |
+| Mix Node | MISSING | — | — |
+| ML CLI | PARTIAL | research only | — |
 | ML Lab GUI | MISSING | — | — |
-| True-peak limiter | PARTIAL | Legacy cubic helper | Milestone 1B replacement |
-| Dynamic EQ | MISSING | — | Milestone 1C |
-| Undo | MISSING | Previous values captured | Command not exposed |
 
-ZIP packaging ≠ installer. ML CLI ≠ ML Lab.
+## Gate
+
+**M1A REMAINS PARTIAL** — official vectors not obtained/passed in this environment.

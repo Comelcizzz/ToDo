@@ -1,48 +1,46 @@
 # Metrics (Milestone 1A)
 
+See also [`M1A_AUDIT.md`](M1A_AUDIT.md) for the pre-hardening map of commit `4b95074`.
+
 ## Standards
 
 | Document | Role |
 |---|---|
-| ITU-R BS.1770 (current edition) | K-weighting, gating, true-peak Annex 2 method |
-| EBU Tech 3341 | Loudness test signals / expected readings |
-| EBU Tech 3342 | LRA procedure |
-| EBU R 128 | Metering context (LUFS / LU) |
+| ITU-R BS.1770 | K-weighting, gating, true-peak *method* |
+| EBU Tech 3341 / 3342 | Official loudness / LRA vectors (local only) |
+| EBU R 128 | Metering context |
 
-## Implementation
+## True peak (documented approximation)
 
-Shared engine: `modules/audio-analysis` `LoudnessMeter` used by offline `AudioAnalyzer` and `RealtimeMeter`.
+- Phases: 4
+- Taps/phase: 24 (96-tap prototype)
+- Kernel: Hann-windowed sinc, cutoff π/4 in upsampled domain
+- Normalization: each phase DC-normalized to sum≈1
+- State: 24-sample history/channel across blocks
+- Warmup: first 24 samples → `warmingUp`
+- **Not** ITU-published Annex 2 coefficient tables
 
-| Metric | Method | Validity flag |
-|---|---|---|
-| sample peak | max \|x\| → dBFS | always when audio present |
-| true peak | 4× polyphase windowed-sinc (Annex 2 method) | `truePeakValid` |
-| momentary LUFS | 400 ms K-weighted mean square | `momentaryLufsIsValid` |
-| short-term LUFS | 3 s sliding window | `shortTermLufsIsValid` |
-| integrated LUFS | 400 ms / 75% hop + absolute −70 / relative −10 gating | `integratedLufsIsValid` |
-| LRA | short-term distribution, −20 LU relative gate, 10–95% | `loudnessRangeIsValid` |
-| RMS / crest / correlation | existing helpers | always computed |
+## Loudness windows
 
-`prepare()` may allocate. `process()` must not allocate or lock.
+| Metric | Window | Hop/update | Valid when |
+|---|---|---|---|
+| Momentary | 400 ms | ≈100 ms (4 hops) | after ≥400 ms |
+| Short-term | 3 s | every sample (sliding) | after ≥3 s |
+| Integrated | program | 400 ms / 75% | ≥1 abs-gated block; RT=`provisional` until `finalize()` |
+| LRA | ST-derived | finalize | enough gated ST samples; **PARTIAL** |
+
+## UI semantics
+
+- Before window: `Warming up` / `Unavailable` — never fake 0 LUFS
+- Streaming integrated: `Provisional`
+- After finalize / offline: `Valid`
+- Dropped analysis frames: `Degraded` + counter
 
 ## Official vectors
 
-Do not commit copyrighted WAVs. Use `scripts/fetch-loudness-testdata.sh` → `testdata/official/` (gitignored).
+`testdata/official/manifest.json` + `scripts/fetch-loudness-testdata.sh`. WAVs not committed. M1A acceptance requires present files with matching SHA-256 and passing tolerances.
 
-Report columns: source document | vector/file ID | expected | tolerance | implementation | pass/fail | sha256.
+## Artifacts
 
-Synthetic tones are additional regressions, not the sole compliance evidence.
-
-## Tolerances (synthetic / interim)
-
-| Metric | Synthetic expectation | Tolerance |
-|---|---|---|
-| sample peak 0.5 FS sine | −6.0206 dBFS | ±0.02 dB |
-| integrated −23 dBFS 1 kHz stereo | ≈ −23 LUFS | ±0.5 LU (tighten after official vectors) |
-| block-size invariance | same integrated | ±0.05 LU |
-| sample-rate invariance 44.1/48/96 | same integrated | ±0.3 LU |
-| RT vs offline short-term | match after ≥3 s | ±0.15 LU |
-
-## Host latency
-
-Metering is analysis-only and does not add Analyzer output latency (Analyzer remains pass-through). DSP host latency is Milestone 1B.
+- `metering-validation.json`
+- `metering-validation.md`

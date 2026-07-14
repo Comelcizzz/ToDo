@@ -62,6 +62,8 @@ if(MASTERING_AUDIO_BUILD_TESTS)
     add_executable(mastering_audio_tests
         tests/AudioAnalyzerTests.cpp
         tests/LoudnessMeterTests.cpp
+        tests/TruePeakAndLoudnessHardeningTests.cpp
+        tests/MeteringValidationTests.cpp
         tests/ProcessorChainTests.cpp
         tests/ProjectDocumentTests.cpp
         tests/RenderPathTests.cpp

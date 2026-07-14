@@ -1,0 +1,40 @@
+{
+  "description": "Official loudness/LRA vectors are NOT redistributed in this repository. Place licensed files locally and fill sha256/expected values before compliance runs.",
+  "vectors": [
+    {
+      "id": "ebu3341-1khz-stereo-23",
+      "source": "EBU Tech 3341",
+      "localFilename": "1kHz Sine -20 LUFS-16bit.wav",
+      "sha256": "",
+      "metric": "integratedLufs",
+      "expected": -23.0,
+      "tolerance": 0.1,
+      "sampleRate": 48000,
+      "channels": 2,
+      "licensingNote": "Obtain from EBU; do not commit WAV unless redistribution is permitted."
+    },
+    {
+      "id": "ebu3342-lra-example",
+      "source": "EBU Tech 3342",
+      "localFilename": "seq-3341-7-24bit.wav",
+      "sha256": "",
+      "metric": "loudnessRangeLu",
+      "expected": null,
+      "tolerance": 0.5,
+      "sampleRate": 48000,
+      "channels": 2,
+      "licensingNote": "Obtain from EBU; LRA expected depends on exact sequence file."
+    }
+  ],
+  "syntheticPublishedExpectations": [
+    {
+      "id": "synthetic-1khz-stereo-peak-minus23",
+      "source": "EBU R 128 / published cal-tone expectation",
+      "localFilename": null,
+      "metric": "integratedLufs",
+      "expected": -23.0,
+      "tolerance": 0.5,
+      "note": "Generated in-repo; interim until official Tech 3341 WAV present."
+    }
+  ]
+}
