@@ -20,6 +20,6 @@ __pycache__/
 *.py[cod]
 .venv*/
 *.joblib
-testdata/official/
+testdata/official/**
+!testdata/official/
 !testdata/official/MANIFEST.md
-!testdata/official/.gitkeep
