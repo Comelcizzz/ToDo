@@ -11,14 +11,10 @@ Everything runs offline. No accounts, no cloud upload.
 
 ## Honest capability notes
 
-- The Analyzer realtime UI shows **Estimated Loudness** (RMS-derived) and **Sample Peak**.
-  It does **not** currently publish realtime LUFS or true-peak values.
-- For **finite** audio, Analyzer processing is bit-transparent (sample-for-sample). NaN/Inf are sanitized to 0.
-  See `[milestone0][bit-transparency]` tests — do not claim transparency without that evidence.
-- Offline analysis can compute an integrated LUFS approximation and an estimated true-peak value;
-  both are explicitly flagged in serialized metrics.
+- The Analyzer publishes validity-gated **Momentary / Short-term / Integrated LUFS** and **True Peak** from a shared BS.1770-style engine (Milestone 1A). Official EBU vectors are fetched locally (not committed).
+- For **finite** audio, Analyzer processing is bit-transparent. NaN/Inf are sanitized to 0.
 - MixAdvisor **Apply** sets absolute Action targets (idempotent). **Reject** is pending-only; it does not undo an Apply.
-- The current limiter is **not** a fully oversampled true-peak limiter yet (see `docs/FEATURE_STATUS.md`).
+- The current limiter is **not** a fully oversampled true-peak limiter yet (Milestone 1B).
 - Portable ZIP packaging is **not** an installer. ML under `ml/` is a research CLI, not an ML Lab GUI.
 
 ## Products

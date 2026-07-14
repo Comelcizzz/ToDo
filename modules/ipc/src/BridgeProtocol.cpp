@@ -41,6 +41,10 @@ ValidationResult validateTrackAnalysisPayload(std::string_view json)
             && metrics.value("truePeakIsEstimate", false) != true) {
             return {false, "IPC metrics claim estimatedTruePeakDbtp without truePeakIsEstimate"};
         }
+        if (metrics.contains("truePeakDbtp")
+            && metrics.value("truePeakValid", false) != true) {
+            return {false, "IPC metrics claim truePeakDbtp without truePeakValid"};
+        }
 
         return {true, {}};
     } catch (const nlohmann::json::exception& error) {

@@ -4,8 +4,6 @@
 #include <cmath>
 #include <complex>
 #include <iomanip>
-#include <limits>
-#include <numeric>
 #include <ranges>
 #include <sstream>
 
@@ -20,11 +18,6 @@ double toDb(double value) noexcept
     return value > 1.0e-12 ? 20.0 * std::log10(value) : silenceDb;
 }
 
-double powerToDb(double value) noexcept
-{
-    return value > 1.0e-12 ? 10.0 * std::log10(value) : silenceDb;
-}
-
 std::vector<float> makeMono(const std::vector<std::vector<float>>& channels)
 {
     if (channels.empty())
@@ -33,148 +26,10 @@ std::vector<float> makeMono(const std::vector<std::vector<float>>& channels)
     const auto frameCount = std::ranges::min(
         channels | std::views::transform([](const auto& channel) { return channel.size(); }));
     std::vector<float> mono(frameCount, 0.0f);
-
     for (const auto& channel : channels)
         for (std::size_t frame = 0; frame < frameCount; ++frame)
             mono[frame] += channel[frame] / static_cast<float>(channels.size());
-
     return mono;
-}
-
-struct Biquad {
-    double b0 {1.0};
-    double b1 {0.0};
-    double b2 {0.0};
-    double a1 {0.0};
-    double a2 {0.0};
-    double z1 {0.0};
-    double z2 {0.0};
-
-    double process(double input) noexcept
-    {
-        const auto output = b0 * input + z1;
-        z1 = b1 * input - a1 * output + z2;
-        z2 = b2 * input - a2 * output;
-        return output;
-    }
-};
-
-Biquad highPass(double sampleRate, double frequency, double q)
-{
-    const auto omega = 2.0 * pi * frequency / sampleRate;
-    const auto alpha = std::sin(omega) / (2.0 * q);
-    const auto cosOmega = std::cos(omega);
-    const auto a0 = 1.0 + alpha;
-
-    return {
-        (1.0 + cosOmega) * 0.5 / a0,
-        -(1.0 + cosOmega) / a0,
-        (1.0 + cosOmega) * 0.5 / a0,
-        -2.0 * cosOmega / a0,
-        (1.0 - alpha) / a0
-    };
-}
-
-Biquad highShelf(double sampleRate, double frequency, double gainDb, double q)
-{
-    const auto amplitude = std::pow(10.0, gainDb / 40.0);
-    const auto omega = 2.0 * pi * frequency / sampleRate;
-    const auto cosOmega = std::cos(omega);
-    const auto sinOmega = std::sin(omega);
-    const auto alpha = sinOmega / (2.0 * q);
-    const auto beta = 2.0 * std::sqrt(amplitude) * alpha;
-    const auto a0 = (amplitude + 1.0) - (amplitude - 1.0) * cosOmega + beta;
-
-    return {
-        amplitude * ((amplitude + 1.0) + (amplitude - 1.0) * cosOmega + beta) / a0,
-        -2.0 * amplitude * ((amplitude - 1.0) + (amplitude + 1.0) * cosOmega) / a0,
-        amplitude * ((amplitude + 1.0) + (amplitude - 1.0) * cosOmega - beta) / a0,
-        2.0 * ((amplitude - 1.0) - (amplitude + 1.0) * cosOmega) / a0,
-        ((amplitude + 1.0) - (amplitude - 1.0) * cosOmega - beta) / a0
-    };
-}
-
-double integratedLufs(const std::vector<std::vector<float>>& channels, double sampleRate)
-{
-    if (channels.empty() || sampleRate <= 0.0)
-        return silenceDb;
-
-    const auto frameCount = std::ranges::min(
-        channels | std::views::transform([](const auto& channel) { return channel.size(); }));
-    const auto blockFrames = static_cast<std::size_t>(std::max(1.0, sampleRate * 0.4));
-    const auto hopFrames = std::max<std::size_t>(1, blockFrames / 4);
-    if (frameCount < blockFrames)
-        return silenceDb;
-
-    std::vector<std::vector<double>> weighted(channels.size(), std::vector<double>(frameCount));
-    for (std::size_t channel = 0; channel < channels.size(); ++channel) {
-        auto shelf = highShelf(sampleRate, 1'681.974, 4.0, 0.707);
-        auto filter = highPass(sampleRate, 38.135, 0.500);
-        for (std::size_t frame = 0; frame < frameCount; ++frame)
-            weighted[channel][frame] = filter.process(shelf.process(channels[channel][frame]));
-    }
-
-    std::vector<double> blockPowers;
-    for (std::size_t start = 0; start + blockFrames <= frameCount; start += hopFrames) {
-        double power = 0.0;
-        for (const auto& channel : weighted) {
-            double channelPower = 0.0;
-            for (std::size_t frame = start; frame < start + blockFrames; ++frame)
-                channelPower += channel[frame] * channel[frame];
-            power += channelPower / static_cast<double>(blockFrames);
-        }
-        if (-0.691 + powerToDb(power) >= -70.0)
-            blockPowers.push_back(power);
-    }
-
-    if (blockPowers.empty())
-        return silenceDb;
-
-    const auto ungatedPower =
-        std::reduce(blockPowers.begin(), blockPowers.end()) / static_cast<double>(blockPowers.size());
-    const auto relativeGate = -0.691 + powerToDb(ungatedPower) - 10.0;
-
-    double gatedPower = 0.0;
-    std::size_t gatedCount = 0;
-    for (const auto power : blockPowers) {
-        if (-0.691 + powerToDb(power) >= relativeGate) {
-            gatedPower += power;
-            ++gatedCount;
-        }
-    }
-
-    return gatedCount == 0
-        ? silenceDb
-        : -0.691 + powerToDb(gatedPower / static_cast<double>(gatedCount));
-}
-
-double cubicInterpolate(double y0, double y1, double y2, double y3, double position)
-{
-    const auto a0 = y3 - y2 - y0 + y1;
-    const auto a1 = y0 - y1 - a0;
-    const auto a2 = y2 - y0;
-    return a0 * position * position * position + a1 * position * position + a2 * position + y1;
-}
-
-double estimatedTruePeak(const std::vector<std::vector<float>>& channels)
-{
-    double peak = 0.0;
-    for (const auto& channel : channels) {
-        if (channel.size() < 4)
-            continue;
-        for (std::size_t frame = 1; frame + 2 < channel.size(); ++frame) {
-            peak = std::max(peak, std::abs(static_cast<double>(channel[frame])));
-            for (const auto fraction : {0.25, 0.5, 0.75}) {
-                peak = std::max(peak, std::abs(cubicInterpolate(
-                    channel[frame - 1],
-                    channel[frame],
-                    channel[frame + 1],
-                    channel[frame + 2],
-                    fraction)));
-            }
-        }
-    }
-    return peak;
 }
 
 double transientDensity(std::span<const float> mono, double sampleRate)
@@ -194,7 +49,6 @@ double transientDensity(std::span<const float> mono, double sampleRate)
             ++transients;
         previous = 0.75 * previous + 0.25 * rms;
     }
-
     const auto duration = static_cast<double>(mono.size()) / sampleRate;
     return duration > 0.0 ? static_cast<double>(transients) / duration : 0.0;
 }
@@ -244,7 +98,27 @@ double bandLevel(
     double power = 0.0;
     for (auto bin = lowBin; bin < highBin; ++bin)
         power += std::norm(bins[bin]);
-    return powerToDb(power / static_cast<double>(highBin - lowBin)) - 20.0 * std::log10(fftSize);
+    return (power > 1.0e-12
+                ? 10.0 * std::log10(power / static_cast<double>(highBin - lowBin))
+                : silenceDb)
+        - 20.0 * std::log10(static_cast<double>(fftSize));
+}
+
+void applyLoudnessReading(AudioMetrics& metrics, const LoudnessReading& reading)
+{
+    metrics.samplePeakDbfs = toDb(reading.samplePeakLinear);
+    metrics.truePeakDbtp = toDb(reading.truePeakLinear);
+    metrics.truePeakValid = reading.truePeakValid;
+    metrics.estimatedTruePeakDbtp = metrics.truePeakDbtp;
+    metrics.truePeakIsEstimate = false; // Milestone 1A: oversampled meter, not cubic estimate
+    metrics.momentaryLufs = reading.momentaryLufs;
+    metrics.momentaryLufsIsValid = reading.momentaryValid;
+    metrics.shortTermLufs = reading.shortTermLufs;
+    metrics.shortTermLufsIsValid = reading.shortTermValid;
+    metrics.integratedLufs = reading.integratedLufs;
+    metrics.integratedLufsIsValid = reading.integratedValid;
+    metrics.loudnessRangeLu = reading.loudnessRangeLu;
+    metrics.loudnessRangeIsValid = reading.loudnessRangeValid;
 }
 
 } // namespace
@@ -262,28 +136,36 @@ AudioMetrics AudioAnalyzer::analyze(
     if (frameCount == 0)
         return result;
 
-    double peak = 0.0;
-    double sumSquares = 0.0;
-    for (const auto& channel : channels) {
-        for (std::size_t frame = 0; frame < frameCount; ++frame) {
-            peak = std::max(peak, std::abs(static_cast<double>(channel[frame])));
-            sumSquares += static_cast<double>(channel[frame]) * channel[frame];
-        }
-    }
+    LoudnessMeter meter;
+    meter.prepare(sampleRate, static_cast<int>(channels.size()));
+    std::vector<const float*> pointers(channels.size());
+    for (std::size_t channel = 0; channel < channels.size(); ++channel)
+        pointers[channel] = channels[channel].data();
 
+    constexpr int chunk = 512;
+    for (std::size_t start = 0; start < frameCount; start += static_cast<std::size_t>(chunk)) {
+        const auto count = static_cast<int>(
+            std::min(frameCount - start, static_cast<std::size_t>(chunk)));
+        std::vector<const float*> offsetPointers(channels.size());
+        for (std::size_t channel = 0; channel < channels.size(); ++channel)
+            offsetPointers[channel] = pointers[channel] + start;
+        meter.process(offsetPointers.data(), static_cast<int>(channels.size()), count);
+    }
+    meter.finalize();
+    applyLoudnessReading(result, meter.snapshot());
+
+    double sumSquares = 0.0;
+    for (const auto& channel : channels)
+        for (std::size_t frame = 0; frame < frameCount; ++frame)
+            sumSquares += static_cast<double>(channel[frame]) * channel[frame];
     const auto rms = std::sqrt(
         sumSquares / static_cast<double>(frameCount * channels.size()));
-    const auto mono = makeMono(channels);
-
-    result.samplePeakDbfs = toDb(peak);
-    result.estimatedTruePeakDbtp = toDb(estimatedTruePeak(channels));
-    result.truePeakIsEstimate = true;
     result.rmsDbfs = toDb(rms);
     result.estimatedLoudnessDb = result.rmsDbfs;
     result.estimatedLoudnessIsValid = true;
-    result.integratedLufs = integratedLufs(channels, sampleRate);
-    result.integratedLufsIsValid = true;
     result.crestFactorDb = result.samplePeakDbfs - result.rmsDbfs;
+
+    const auto mono = makeMono(channels);
     result.transientDensityHz = transientDensity(mono, sampleRate);
     result.spectrum = calculateSpectrum(mono, sampleRate);
     result.durationSeconds = static_cast<double>(frameCount) / sampleRate;
@@ -335,16 +217,17 @@ SpectrumProfile AudioAnalyzer::calculateSpectrum(std::span<const float> mono, do
 void RealtimeMeter::prepare(double sampleRate) noexcept
 {
     sampleRate_.store(sampleRate, std::memory_order_relaxed);
+    loudness_.prepare(sampleRate, 2);
     reset();
 }
 
 void RealtimeMeter::reset() noexcept
 {
-    peak_.store(0.0, std::memory_order_relaxed);
-    sumSquares_.store(0.0, std::memory_order_relaxed);
+    loudness_.reset();
     leftRightProduct_.store(0.0, std::memory_order_relaxed);
     leftSquares_.store(0.0, std::memory_order_relaxed);
     rightSquares_.store(0.0, std::memory_order_relaxed);
+    sumSquares_.store(0.0, std::memory_order_relaxed);
     transientCount_.store(0.0, std::memory_order_relaxed);
     previousEnvelope_.store(0.0, std::memory_order_relaxed);
     sampleCount_.store(0, std::memory_order_relaxed);
@@ -359,22 +242,20 @@ void RealtimeMeter::process(
     if (channels == nullptr || channelCount <= 0 || sampleCount <= 0)
         return;
 
-    double blockPeak = 0.0;
+    loudness_.process(channels, channelCount, sampleCount);
+
     double blockSquares = 0.0;
     double product = 0.0;
     double leftPower = 0.0;
     double rightPower = 0.0;
-
     for (int channel = 0; channel < channelCount; ++channel) {
         if (channels[channel] == nullptr)
             continue;
         for (int sample = 0; sample < sampleCount; ++sample) {
             const auto value = static_cast<double>(channels[channel][sample]);
-            blockPeak = std::max(blockPeak, std::abs(value));
             blockSquares += value * value;
         }
     }
-
     if (channelCount >= 2 && channels[0] != nullptr && channels[1] != nullptr) {
         for (int sample = 0; sample < sampleCount; ++sample) {
             const auto left = static_cast<double>(channels[0][sample]);
@@ -385,10 +266,6 @@ void RealtimeMeter::process(
         }
     }
 
-    auto currentPeak = peak_.load(std::memory_order_relaxed);
-    while (blockPeak > currentPeak
-           && !peak_.compare_exchange_weak(currentPeak, blockPeak, std::memory_order_relaxed)) {
-    }
     sumSquares_.fetch_add(blockSquares, std::memory_order_relaxed);
     leftRightProduct_.fetch_add(product, std::memory_order_relaxed);
     leftSquares_.fetch_add(leftPower, std::memory_order_relaxed);
@@ -417,16 +294,10 @@ AudioMetrics RealtimeMeter::snapshot() const noexcept
         ? std::sqrt(sumSquares_.load(std::memory_order_relaxed) / totalValues)
         : 0.0;
 
-    metrics.samplePeakDbfs = toDb(peak_.load(std::memory_order_relaxed));
-    // Realtime path does not claim true-peak or LUFS. Sample peak and RMS-derived
-    // estimated loudness are the only honest display values until Milestone 1.
-    metrics.estimatedTruePeakDbtp = -120.0;
-    metrics.truePeakIsEstimate = false;
+    applyLoudnessReading(metrics, loudness_.snapshot());
     metrics.rmsDbfs = toDb(rms);
     metrics.estimatedLoudnessDb = metrics.rmsDbfs;
     metrics.estimatedLoudnessIsValid = true;
-    metrics.integratedLufs = -120.0;
-    metrics.integratedLufsIsValid = false;
     metrics.crestFactorDb = metrics.samplePeakDbfs - metrics.rmsDbfs;
     metrics.durationSeconds = sampleRate > 0.0 ? static_cast<double>(samples) / sampleRate : 0.0;
     metrics.transientDensityHz = metrics.durationSeconds > 0.0
@@ -458,12 +329,24 @@ std::string toJson(const AudioMetrics& metrics)
            << R"(,"durationSeconds":)" << metrics.durationSeconds
            << R"(,"sampleRate":)" << metrics.sampleRate
            << R"(,"channels":)" << metrics.channels
+           << R"(,"truePeakValid":)" << (metrics.truePeakValid ? "true" : "false")
            << R"(,"truePeakIsEstimate":)" << (metrics.truePeakIsEstimate ? "true" : "false")
-           << R"(,"integratedLufsIsValid":)" << (metrics.integratedLufsIsValid ? "true" : "false");
+           << R"(,"momentaryLufsIsValid":)" << (metrics.momentaryLufsIsValid ? "true" : "false")
+           << R"(,"shortTermLufsIsValid":)" << (metrics.shortTermLufsIsValid ? "true" : "false")
+           << R"(,"integratedLufsIsValid":)" << (metrics.integratedLufsIsValid ? "true" : "false")
+           << R"(,"loudnessRangeIsValid":)" << (metrics.loudnessRangeIsValid ? "true" : "false");
+    if (metrics.truePeakValid)
+        output << R"(,"truePeakDbtp":)" << metrics.truePeakDbtp;
     if (metrics.truePeakIsEstimate)
         output << R"(,"estimatedTruePeakDbtp":)" << metrics.estimatedTruePeakDbtp;
+    if (metrics.momentaryLufsIsValid)
+        output << R"(,"momentaryLufs":)" << metrics.momentaryLufs;
+    if (metrics.shortTermLufsIsValid)
+        output << R"(,"shortTermLufs":)" << metrics.shortTermLufs;
     if (metrics.integratedLufsIsValid)
         output << R"(,"integratedLufs":)" << metrics.integratedLufs;
+    if (metrics.loudnessRangeIsValid)
+        output << R"(,"loudnessRangeLu":)" << metrics.loudnessRangeLu;
     output << R"(,"spectrum":{"subDb":)" << metrics.spectrum.subDb
            << R"(,"bassDb":)" << metrics.spectrum.bassDb
            << R"(,"lowMidDb":)" << metrics.spectrum.lowMidDb
@@ -482,6 +365,11 @@ bool jsonClaimsLufsForEstimate(std::string_view json)
 
 bool jsonClaimsTruePeakWithoutEstimate(std::string_view json)
 {
+    // New path publishes truePeakDbtp with truePeakValid.
+    if (json.find("\"truePeakDbtp\"") != std::string_view::npos
+        && json.find("\"truePeakValid\":true") == std::string_view::npos) {
+        return true;
+    }
     const auto hasTpField = json.find("\"estimatedTruePeakDbtp\"") != std::string_view::npos;
     const auto markedEstimate = json.find("\"truePeakIsEstimate\":true") != std::string_view::npos;
     return hasTpField && !markedEstimate;

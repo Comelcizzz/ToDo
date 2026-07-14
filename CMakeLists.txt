@@ -21,6 +21,7 @@ FetchContent_MakeAvailable(nlohmann_json)
 
 add_library(mastering_audio_core STATIC
     modules/audio-analysis/src/AudioAnalyzer.cpp
+    modules/audio-analysis/src/LoudnessMeter.cpp
     modules/dsp/src/ProcessorChain.cpp
     modules/dsp/src/DynamicTools.cpp
     modules/assistant/src/MixAdvisor.cpp
@@ -60,6 +61,7 @@ if(MASTERING_AUDIO_BUILD_TESTS)
 
     add_executable(mastering_audio_tests
         tests/AudioAnalyzerTests.cpp
+        tests/LoudnessMeterTests.cpp
         tests/ProcessorChainTests.cpp
         tests/ProjectDocumentTests.cpp
         tests/RenderPathTests.cpp

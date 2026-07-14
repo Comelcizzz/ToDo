@@ -7,7 +7,7 @@
    - Kick, Snare, Drums/OH, Bass, Rhythm Guitars, Lead Vocals, Screams, Synths/FX
 3. In the plugin UI choose the matching **signal role**.
 4. Play the full song once. The analyzer is pass-through and never changes the audio.
-5. Click **Save analysis**. Realtime cards show Estimated Loudness and Sample Peak (not LUFS/true-peak yet). Metrics sync into the open Suite project when connected, or write a sidecar under Documents / `Mastering Audio Reports`.
+5. Click **Save analysis**. Realtime cards show Momentary / Short-term / Integrated LUFS and True Peak when their validity windows are ready (Milestone 1A). Metrics sync into the open Suite project when connected, or write a sidecar under Documents / `Mastering Audio Reports`.
 
 ## 2. Export stems
 

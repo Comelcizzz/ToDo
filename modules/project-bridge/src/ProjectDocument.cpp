@@ -48,14 +48,26 @@ json metricsToJson(const analysis::AudioMetrics& metrics)
         {"durationSeconds", metrics.durationSeconds},
         {"sampleRate", metrics.sampleRate},
         {"channels", metrics.channels},
+        {"truePeakValid", metrics.truePeakValid},
         {"truePeakIsEstimate", metrics.truePeakIsEstimate},
+        {"momentaryLufsIsValid", metrics.momentaryLufsIsValid},
+        {"shortTermLufsIsValid", metrics.shortTermLufsIsValid},
         {"integratedLufsIsValid", metrics.integratedLufsIsValid},
+        {"loudnessRangeIsValid", metrics.loudnessRangeIsValid},
         {"spectrum", spectrumToJson(metrics.spectrum)}
     };
+    if (metrics.truePeakValid)
+        value["truePeakDbtp"] = metrics.truePeakDbtp;
     if (metrics.truePeakIsEstimate)
         value["estimatedTruePeakDbtp"] = metrics.estimatedTruePeakDbtp;
+    if (metrics.momentaryLufsIsValid)
+        value["momentaryLufs"] = metrics.momentaryLufs;
+    if (metrics.shortTermLufsIsValid)
+        value["shortTermLufs"] = metrics.shortTermLufs;
     if (metrics.integratedLufsIsValid)
         value["integratedLufs"] = metrics.integratedLufs;
+    if (metrics.loudnessRangeIsValid)
+        value["loudnessRangeLu"] = metrics.loudnessRangeLu;
     return value;
 }
 
@@ -97,13 +109,21 @@ void read(const json& value, const char* key, Type& destination)
 void readMetrics(const json& value, analysis::AudioMetrics& metrics)
 {
     read(value, "samplePeakDbfs", metrics.samplePeakDbfs);
+    read(value, "truePeakDbtp", metrics.truePeakDbtp);
+    read(value, "truePeakValid", metrics.truePeakValid);
     read(value, "estimatedTruePeakDbtp", metrics.estimatedTruePeakDbtp);
     read(value, "truePeakIsEstimate", metrics.truePeakIsEstimate);
     read(value, "rmsDbfs", metrics.rmsDbfs);
     read(value, "estimatedLoudnessDb", metrics.estimatedLoudnessDb);
     read(value, "estimatedLoudnessIsValid", metrics.estimatedLoudnessIsValid);
+    read(value, "momentaryLufs", metrics.momentaryLufs);
+    read(value, "momentaryLufsIsValid", metrics.momentaryLufsIsValid);
+    read(value, "shortTermLufs", metrics.shortTermLufs);
+    read(value, "shortTermLufsIsValid", metrics.shortTermLufsIsValid);
     read(value, "integratedLufs", metrics.integratedLufs);
     read(value, "integratedLufsIsValid", metrics.integratedLufsIsValid);
+    read(value, "loudnessRangeLu", metrics.loudnessRangeLu);
+    read(value, "loudnessRangeIsValid", metrics.loudnessRangeIsValid);
     read(value, "crestFactorDb", metrics.crestFactorDb);
     read(value, "stereoCorrelation", metrics.stereoCorrelation);
     read(value, "transientDensityHz", metrics.transientDensityHz);
@@ -116,6 +136,8 @@ void readMetrics(const json& value, analysis::AudioMetrics& metrics)
         metrics.integratedLufsIsValid = false;
     if (!value.contains("truePeakIsEstimate") && value.contains("estimatedTruePeakDbtp"))
         metrics.truePeakIsEstimate = false;
+    if (!value.contains("truePeakValid") && value.contains("truePeakDbtp"))
+        metrics.truePeakValid = false;
     if (!metrics.estimatedLoudnessIsValid && value.contains("rmsDbfs")) {
         metrics.estimatedLoudnessDb = metrics.rmsDbfs;
         metrics.estimatedLoudnessIsValid = true;

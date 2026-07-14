@@ -84,13 +84,14 @@ TEST_CASE("Realtime meter JSON never claims LUFS or true peak", "[milestone0][la
     CHECK(json.find("estimatedLoudnessDb") != std::string::npos);
 }
 
-TEST_CASE("Offline analyzer may publish estimated true peak and valid LUFS", "[milestone0][labels]")
+TEST_CASE("Offline analyzer publishes BS.1770-style loudness and true peak", "[milestone0][labels]")
 {
     std::vector<std::vector<float>> channels(2, std::vector<float>(48'000, 0.25f));
     const auto metrics = mastering::analysis::AudioAnalyzer {}.analyze(channels, 48'000.0);
     const auto json = mastering::analysis::toJson(metrics);
     CHECK(metrics.integratedLufsIsValid);
-    CHECK(metrics.truePeakIsEstimate);
+    CHECK(metrics.truePeakValid);
+    CHECK_FALSE(metrics.truePeakIsEstimate);
     CHECK_FALSE(mastering::analysis::jsonClaimsLufsForEstimate(json));
     CHECK_FALSE(mastering::analysis::jsonClaimsTruePeakWithoutEstimate(json));
 }

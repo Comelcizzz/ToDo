@@ -2,37 +2,37 @@
 
 Statuses (only these values): `IMPLEMENTED` | `PARTIAL` | `STUB` | `MOCK` | `MISSING`
 
-Updated after Milestone 0 verification gate.
+Updated after Milestone 0 verification + Milestone 1A metering start.
 
 | Feature | Status | Evidence | Limitation |
 |---|---|---|---|
-| Analyzer float pass-through | IMPLEMENTED | `PassThroughPolicy` + `[milestone0][bit-transparency][float]` | NaN/Inf sanitized to 0 |
-| Analyzer double pass-through | IMPLEMENTED | Double `processBlock` + `[milestone0][bit-transparency][double]` | Meter via float scratch; finite samples unchanged |
-| Honest RT labels | IMPLEMENTED | UI Estimated Loudness / Sample Peak; RT JSON omits LUFS/TP | Not true LUFS/TP |
-| Realtime LUFS | MISSING | — | Not computed or published |
-| Realtime true peak | MISSING | — | Not computed or published |
-| Offline integrated LUFS | PARTIAL | Offline analyzer path | Approximation; M1A will align to BS.1770 vectors |
-| Offline estimated true peak | PARTIAL | Flagged `truePeakIsEstimate` | Cubic estimate, not BS.1770 Annex 2 |
-| Stem import replace | IMPLEMENTED | `StemEngine::importFiles` + Suite no-op on empty | No multi-slot append API |
-| Ghost tracks on re-import | IMPLEMENTED | Engine clear-then-replace; Suite skips empty import | — |
-| MixAdvisor absolute Apply | IMPLEMENTED | Absolute `targetGainDb` + `ProcessorSettings`; re-Apply idempotent | Plan-level UI, not per-row editor polish |
-| Per-action Apply | PARTIAL | Absolute Action records applied from plan list | UI applies whole plan; no single-action UI control |
-| Per-action Reject | PARTIAL | Reject-before-Apply only (`pending`→`rejected`) | Reject after Apply does not revert; Undo not shipped |
-| Per-action Edit | PARTIAL | Edit target then re-Apply absolute values | No dedicated edit UI; values editable in plan JSON/state |
-| Persistent Action state | IMPLEMENTED | `.masuite` actions[] with state + previous snapshot | Undo command not implemented yet |
-| Project schema v2 | IMPLEMENTED | `kCurrentSchemaVersion=2`; reject newer; migrate v1 | — |
-| Full project restore | PARTIAL | Tracks, gains, processing, actions, master round-trip | Relative asset paths / pairs / sections not in schema yet |
-| IPC bridge | PARTIAL | TCP localhost + schema validation | No heartbeat/queue isolation hardening |
-| Sidecar writer | PARTIAL | Analyzer writes when Suite offline | Format still role/metrics oriented |
-| Sidecar Suite reader | MISSING | — | Suite does not import sidecar files yet |
-| ZIP packaging | IMPLEMENTED | CI `mastering-audio-suite-windows` portable ZIP | Not an installer |
-| Actual installer | MISSING | — | Inno Setup planned after M1 / early M2 |
-| Mix Node | MISSING | — | PoC after trustworthy DSP (post-1B) |
-| ML CLI | PARTIAL | `ml/` research ridge pipeline | Research-only; not product MixAdvisor |
-| ML Lab GUI | MISSING | — | Separate milestone |
-| True-peak limiter | PARTIAL | Cubic ISP estimate ceiling helper | No oversampling/look-ahead/host latency |
+| Analyzer float pass-through | IMPLEMENTED | `PassThroughPolicy` + bit-transparency tests | NaN/Inf → 0 |
+| Analyzer double pass-through | IMPLEMENTED | Double `processBlock` + tests | Meter via float scratch |
+| Shared LoudnessMeter core | IMPLEMENTED | `LoudnessMeter` used by offline + RT | Official EBU WAVs not bundled |
+| Sample peak | IMPLEMENTED | Analyzer + tests | — |
+| True-peak meter (4×) | PARTIAL | `truePeakValid` + ISP relative test | Not yet validated on official Annex 2 vectors |
+| Momentary / short-term / integrated LUFS | PARTIAL | Synthetic −23 tone ±0.5 LU; invariance tests | Official Tech 3341 vectors pending local fetch |
+| LRA | PARTIAL | Computed in `finalize()` | Needs Tech 3342 official vectors |
+| RT / offline shared metering | PARTIAL | Same `LoudnessMeter`; ST/M match test | Integrated finalize differs on RT stream |
+| Honest RT labels | IMPLEMENTED | Validity-gated LUFS/TP fields | Empty UI shows — until window valid |
+| Stem import replace | IMPLEMENTED | Engine clear-then-replace | — |
+| MixAdvisor absolute Apply | IMPLEMENTED | Absolute gain + ProcessorSettings | Plan-level UI |
+| Per-action Apply | PARTIAL | Absolute Action list | No single-action UI control |
+| Per-action Reject | PARTIAL | Reject-before-Apply only | No Undo yet |
+| Per-action Edit | PARTIAL | Edit targets then re-Apply | No dedicated edit UI |
+| Persistent Action state | IMPLEMENTED | `.masuite` actions + previous snapshot | Undo command missing |
+| Project schema v2 | IMPLEMENTED | Reject newer; migrate v1 | — |
+| Full project restore | PARTIAL | Tracks/gains/processing/actions | No pairs/sections yet |
+| IPC bridge | PARTIAL | Schema validation | No heartbeat/queue hardening |
+| Sidecar writer | PARTIAL | Analyzer offline write | — |
+| Sidecar Suite reader | MISSING | — | — |
+| ZIP packaging | IMPLEMENTED | CI `mastering-audio-suite-windows` | Not an installer; WebView2 Runtime not bundled |
+| Actual installer | MISSING | — | After M1 / early M2 |
+| Mix Node | MISSING | — | After 1B |
+| ML CLI | PARTIAL | `ml/` research | Not MixAdvisor |
+| ML Lab GUI | MISSING | — | — |
+| True-peak limiter | PARTIAL | Legacy cubic helper | Milestone 1B replacement |
 | Dynamic EQ | MISSING | — | Milestone 1C |
-| UI design tokens | PARTIAL | CSS tokens + loading/error/disabled/offline | Not polished product UI |
-| Undo | MISSING | Previous values captured on Apply | Command not exposed |
+| Undo | MISSING | Previous values captured | Command not exposed |
 
-Do not call ZIP packaging an installer. Do not call the ML CLI an ML Lab. Do not call the Analyzer bit-transparent without the bit-transparency tests above.
+ZIP packaging ≠ installer. ML CLI ≠ ML Lab.

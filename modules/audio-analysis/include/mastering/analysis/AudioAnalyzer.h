@@ -1,5 +1,7 @@
 #pragma once
 
+#include "mastering/analysis/LoudnessMeter.h"
+
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -18,21 +20,27 @@ struct SpectrumProfile {
     double airDb {-120.0};
 };
 
-// Naming contract (Milestone 0):
-// - samplePeakDbfs is always sample peak.
-// - estimatedTruePeakDbtp is only meaningful when truePeakIsEstimate == true
-//   (offline cubic estimate). Realtime meters leave this unset.
-// - integratedLufs is only meaningful when integratedLufsIsValid == true.
-// - estimatedLoudnessDb is an RMS-derived display estimate, NEVER labeled LUFS.
 struct AudioMetrics {
     double samplePeakDbfs {-120.0};
+    double truePeakDbtp {-120.0};
+    bool truePeakValid {false};
+    // Legacy alias used by older UI/IPC until fully migrated.
     double estimatedTruePeakDbtp {-120.0};
     bool truePeakIsEstimate {false};
+
     double rmsDbfs {-120.0};
     double estimatedLoudnessDb {-120.0};
     bool estimatedLoudnessIsValid {false};
+
+    double momentaryLufs {-120.0};
+    bool momentaryLufsIsValid {false};
+    double shortTermLufs {-120.0};
+    bool shortTermLufsIsValid {false};
     double integratedLufs {-120.0};
     bool integratedLufsIsValid {false};
+    double loudnessRangeLu {0.0};
+    bool loudnessRangeIsValid {false};
+
     double crestFactorDb {0.0};
     double stereoCorrelation {1.0};
     double transientDensityHz {0.0};
@@ -59,15 +67,14 @@ public:
     void prepare(double sampleRate) noexcept;
     void reset() noexcept;
     void process(const float* const* channels, int channelCount, int sampleCount) noexcept;
-
     [[nodiscard]] AudioMetrics snapshot() const noexcept;
 
 private:
-    std::atomic<double> peak_ {0.0};
-    std::atomic<double> sumSquares_ {0.0};
+    LoudnessMeter loudness_;
     std::atomic<double> leftRightProduct_ {0.0};
     std::atomic<double> leftSquares_ {0.0};
     std::atomic<double> rightSquares_ {0.0};
+    std::atomic<double> sumSquares_ {0.0};
     std::atomic<double> transientCount_ {0.0};
     std::atomic<double> previousEnvelope_ {0.0};
     std::atomic<std::uint64_t> sampleCount_ {0};

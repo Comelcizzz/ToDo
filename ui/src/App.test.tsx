@@ -20,10 +20,13 @@ describe("Mastering Audio UI", () => {
     const { unmount } = render(<App />);
     expect(screen.getByText("FL Studio track analyzer")).toBeInTheDocument();
     expect(screen.getByLabelText("Signal role")).toBeInTheDocument();
-    expect(screen.getAllByText("Estimated Loudness").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Sample Peak").length).toBeGreaterThan(0);
-    expect(screen.queryByText("LUFS")).not.toBeInTheDocument();
-    expect(screen.queryByText("True peak")).not.toBeInTheDocument();
+    expect(screen.getByText("Momentary")).toBeInTheDocument();
+    expect(screen.getByText("Short-term")).toBeInTheDocument();
+    expect(screen.getByText("Integrated")).toBeInTheDocument();
+    expect(screen.getAllByText("True Peak").length).toBeGreaterThan(0);
+    // Empty state shows em-dash until validity flags are set.
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
     unmount();
   });
 });

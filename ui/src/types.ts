@@ -17,13 +17,21 @@ export type TrackRole =
 
 export interface AudioMetrics {
   samplePeakDbfs: number;
+  truePeakDbtp?: number;
+  truePeakValid?: boolean;
   estimatedTruePeakDbtp?: number;
   truePeakIsEstimate?: boolean;
   rmsDbfs: number;
   estimatedLoudnessDb?: number;
   estimatedLoudnessIsValid?: boolean;
+  momentaryLufs?: number;
+  momentaryLufsIsValid?: boolean;
+  shortTermLufs?: number;
+  shortTermLufsIsValid?: boolean;
   integratedLufs?: number;
   integratedLufsIsValid?: boolean;
+  loudnessRangeLu?: number;
+  loudnessRangeIsValid?: boolean;
   crestFactorDb: number;
   stereoCorrelation: number;
   transientDensityHz: number;
@@ -74,8 +82,12 @@ export const emptyMetrics: AudioMetrics = {
   rmsDbfs: -120,
   estimatedLoudnessDb: -120,
   estimatedLoudnessIsValid: false,
+  truePeakValid: false,
   truePeakIsEstimate: false,
+  momentaryLufsIsValid: false,
+  shortTermLufsIsValid: false,
   integratedLufsIsValid: false,
+  loudnessRangeIsValid: false,
   crestFactorDb: 0,
   stereoCorrelation: 1,
   transientDensityHz: 0,

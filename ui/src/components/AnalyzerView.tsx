@@ -18,6 +18,12 @@ const roles: TrackRole[] = [
   "custom",
 ];
 
+function formatDb(value: number | undefined, fallback = "—") {
+  if (value === undefined || !Number.isFinite(value))
+    return fallback;
+  return value.toFixed(1);
+}
+
 export function AnalyzerView({ state }: { state: SuiteState }) {
   const metrics = state.analyzerMetrics ?? emptyMetrics;
   const estimatedLoudness = metrics.estimatedLoudnessIsValid
@@ -62,9 +68,32 @@ export function AnalyzerView({ state }: { state: SuiteState }) {
 
       <section className="metric-grid">
         <div className="metric-card">
-          <span>Estimated Loudness</span>
-          <strong>{estimatedLoudness.toFixed(1)}</strong>
-          <small>dBFS RMS-derived</small>
+          <span>Momentary</span>
+          <strong>
+            {metrics.momentaryLufsIsValid ? formatDb(metrics.momentaryLufs) : "—"}
+          </strong>
+          <small>LUFS</small>
+        </div>
+        <div className="metric-card">
+          <span>Short-term</span>
+          <strong>
+            {metrics.shortTermLufsIsValid ? formatDb(metrics.shortTermLufs) : "—"}
+          </strong>
+          <small>LUFS</small>
+        </div>
+        <div className="metric-card">
+          <span>Integrated</span>
+          <strong>
+            {metrics.integratedLufsIsValid ? formatDb(metrics.integratedLufs) : "—"}
+          </strong>
+          <small>LUFS</small>
+        </div>
+        <div className="metric-card">
+          <span>True Peak</span>
+          <strong>
+            {metrics.truePeakValid ? formatDb(metrics.truePeakDbtp) : "—"}
+          </strong>
+          <small>dBTP</small>
         </div>
         <div className="metric-card">
           <span>Sample Peak</span>
@@ -72,20 +101,18 @@ export function AnalyzerView({ state }: { state: SuiteState }) {
           <small>dBFS</small>
         </div>
         <div className="metric-card">
-          <span>Crest</span>
-          <strong>{metrics.crestFactorDb.toFixed(1)}</strong>
-          <small>dB</small>
-        </div>
-        <div className="metric-card">
-          <span>Stereo</span>
-          <strong>{metrics.stereoCorrelation.toFixed(2)}</strong>
-          <small>correlation</small>
+          <span>Estimated Loudness</span>
+          <strong>{estimatedLoudness.toFixed(1)}</strong>
+          <small>dBFS RMS</small>
         </div>
       </section>
 
       <section className="panel">
         <Meter label="Sample Peak" value={metrics.samplePeakDbfs} />
-        <Meter label="Estimated Loudness" value={estimatedLoudness} />
+        <Meter
+          label="True Peak"
+          value={metrics.truePeakValid ? (metrics.truePeakDbtp ?? -120) : -120}
+        />
         <Meter
           label="Correlation"
           value={metrics.stereoCorrelation}
