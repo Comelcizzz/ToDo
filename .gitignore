@@ -15,3 +15,8 @@ dist/
 *.aiff
 *.masuite
 *.analysis.json
+__pycache__/
+*.egg-info/
+*.py[cod]
+.venv*/
+*.joblib
