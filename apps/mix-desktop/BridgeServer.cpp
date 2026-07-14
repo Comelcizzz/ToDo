@@ -1,14 +1,15 @@
 #include "mix-desktop/BridgeServer.h"
+#include "mastering/ipc/BridgeProtocol.h"
 
 namespace mastering::desktop {
 namespace {
-constexpr int bridgePort = 58'432;
+constexpr int bridgePort = mastering::ipc::kBridgePort;
 }
 
 class BridgeServer::ClientConnection final : public juce::InterprocessConnection {
 public:
     explicit ClientConnection(BridgeServer& owner)
-        : juce::InterprocessConnection(true, 0x4d415542),
+        : juce::InterprocessConnection(true, mastering::ipc::kBridgeMagic),
           owner_(owner)
     {
     }
@@ -57,6 +58,9 @@ void BridgeServer::handleMessage(const juce::MemoryBlock& message)
     const auto text = juce::String::fromUTF8(
         static_cast<const char*>(message.getData()),
         static_cast<int>(message.getSize()));
+    const auto validation = mastering::ipc::validateTrackAnalysisPayload(text.toStdString());
+    if (!validation.ok)
+        return;
     const auto parsed = juce::JSON::parse(text);
     if (!parsed.isVoid() && analysisHandler_)
         analysisHandler_(parsed);

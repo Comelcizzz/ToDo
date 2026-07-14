@@ -170,8 +170,10 @@ std::vector<project::TrackRecord> StemEngine::importFiles(
     const juce::Array<juce::File>& files)
 {
     stop();
+    if (files.isEmpty())
+        return {};
+
     std::vector<project::TrackRecord> imported;
-    const juce::ScopedLock guard(lock_);
     for (const auto& file : files) {
         auto reader = std::unique_ptr<juce::AudioFormatReader>(
             formatManager_.createReaderFor(file));
@@ -185,15 +187,22 @@ std::vector<project::TrackRecord> StemEngine::importFiles(
         record.role = project::inferRoleFromFilename(file.getFileName().toStdString());
         record.metrics = analyzeFile(*reader);
         imported.push_back(record);
+    }
+
+    // Empty/failed import is a no-op: keep existing engine tracks.
+    if (imported.empty())
+        return {};
+
+    const juce::ScopedLock guard(lock_);
+    tracks_.clear();
+    for (const auto& record : imported) {
         if (auto playback = createPlaybackTrack(record))
             tracks_.push_back(std::move(playback));
     }
     mixIntegratedLufs_ = 0.0;
-    if (!imported.empty()) {
-        for (const auto& track : imported)
-            mixIntegratedLufs_ += track.metrics.integratedLufs;
-        mixIntegratedLufs_ /= static_cast<double>(imported.size());
-    }
+    for (const auto& track : imported)
+        mixIntegratedLufs_ += track.metrics.integratedLufs;
+    mixIntegratedLufs_ /= static_cast<double>(imported.size());
     recalculateReferenceGain();
     return imported;
 }
@@ -231,12 +240,14 @@ void StemEngine::applyPlan(const assistant::MixPlan& plan)
 {
     const juce::ScopedLock guard(lock_);
     for (const auto& adjustment : plan.trackAdjustments) {
+        if (adjustment.state == assistant::ActionState::rejected)
+            continue;
         const auto iterator = std::ranges::find_if(tracks_, [&adjustment](const auto& track) {
             return track->record.id == adjustment.trackId;
         });
         if (iterator == tracks_.end())
             continue;
-        (*iterator)->record.gainDb += adjustment.gainDeltaDb;
+        (*iterator)->record.gainDb = adjustment.targetGainDb;
         (*iterator)->record.processing = adjustment.processing;
         (*iterator)->processor.setSettings(adjustment.processing);
     }

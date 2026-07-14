@@ -17,7 +17,8 @@ public:
     void releaseResources() override;
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override;
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override;
-    void processBlock(juce::AudioBuffer<double>&, juce::MidiBuffer&) override {}
+    void processBlock(juce::AudioBuffer<double>& buffer, juce::MidiBuffer&) override;
+    bool supportsDoublePrecisionProcessing() const override { return true; }
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override;
@@ -47,6 +48,7 @@ private:
     juce::AudioProcessorValueTreeState state_;
     analysis::RealtimeMeter meter_;
     app::BridgeClient bridge_;
+    juce::AudioBuffer<float> floatMeterScratch_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AnalyzerProcessor)
 };

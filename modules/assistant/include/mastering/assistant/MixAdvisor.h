@@ -23,6 +23,12 @@ enum class MixVariant {
     vocalForward
 };
 
+enum class ActionState {
+    pending,
+    applied,
+    rejected
+};
+
 struct Suggestion {
     SuggestionKind kind {SuggestionKind::qualityControl};
     std::string trackId;
@@ -31,10 +37,13 @@ struct Suggestion {
     double confidence {0.0};
 };
 
+// Absolute gain target — Apply sets gainDb = targetGainDb (never +=).
 struct TrackAdjustment {
+    std::string actionId;
     std::string trackId;
-    double gainDeltaDb {0.0};
+    double targetGainDb {0.0};
     dsp::ProcessorSettings processing;
+    ActionState state {ActionState::pending};
 };
 
 struct MixPlan {
@@ -56,6 +65,10 @@ public:
         const project::ProjectDocument& project,
         const std::optional<analysis::AudioMetrics>& reference = std::nullopt) const;
 
+    // Sets absolute targets; safe to call repeatedly.
+    static void applyPlanToProject(project::ProjectDocument& project, MixPlan& plan);
+    static void rejectPlan(MixPlan& plan) noexcept;
+
 private:
     [[nodiscard]] static double targetRms(
         project::TrackRole role,
@@ -69,6 +82,8 @@ private:
 [[nodiscard]] std::string suggestionKindToString(SuggestionKind kind);
 [[nodiscard]] std::string mixVariantToString(MixVariant variant);
 [[nodiscard]] std::optional<MixVariant> mixVariantFromString(std::string_view value);
+[[nodiscard]] std::string actionStateToString(ActionState state);
+[[nodiscard]] std::optional<ActionState> actionStateFromString(std::string_view value);
 [[nodiscard]] std::string toJson(const MixPlan& plan);
 [[nodiscard]] std::string toJson(const std::vector<MixPlan>& plans);
 

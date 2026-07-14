@@ -1,7 +1,9 @@
 #include "analyzer-plugin/PluginProcessor.h"
 #include "analyzer-plugin/PluginEditor.h"
+#include "mastering/ipc/BridgeProtocol.h"
 
 #include <array>
+#include <cmath>
 #include <ranges>
 
 namespace mastering::plugin {
@@ -62,9 +64,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout AnalyzerProcessor::createPar
     return layout;
 }
 
-void AnalyzerProcessor::prepareToPlay(double sampleRate, int)
+void AnalyzerProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     meter_.prepare(sampleRate);
+    floatMeterScratch_.setSize(2, std::max(1, samplesPerBlock), false, false, true);
 }
 
 void AnalyzerProcessor::releaseResources()
@@ -83,10 +86,40 @@ void AnalyzerProcessor::processBlock(
     juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
+    for (int channel = 0; channel < buffer.getNumChannels(); ++channel) {
+        auto* samples = buffer.getWritePointer(channel);
+        for (int sample = 0; sample < buffer.getNumSamples(); ++sample) {
+            if (!std::isfinite(samples[sample]))
+                samples[sample] = 0.0f;
+        }
+    }
     meter_.process(
         buffer.getArrayOfReadPointers(),
         buffer.getNumChannels(),
         buffer.getNumSamples());
+}
+
+void AnalyzerProcessor::processBlock(
+    juce::AudioBuffer<double>& buffer,
+    juce::MidiBuffer&)
+{
+    juce::ScopedNoDenormals noDenormals;
+    const auto channels = buffer.getNumChannels();
+    const auto samples = buffer.getNumSamples();
+    floatMeterScratch_.setSize(std::max(1, channels), std::max(1, samples), false, false, true);
+    for (int channel = 0; channel < channels; ++channel) {
+        auto* source = buffer.getWritePointer(channel);
+        auto* destination = floatMeterScratch_.getWritePointer(channel);
+        for (int sample = 0; sample < samples; ++sample) {
+            if (!std::isfinite(source[sample]))
+                source[sample] = 0.0;
+            destination[sample] = static_cast<float>(source[sample]);
+        }
+    }
+    meter_.process(
+        floatMeterScratch_.getArrayOfReadPointers(),
+        channels,
+        samples);
 }
 
 juce::AudioProcessorEditor* AnalyzerProcessor::createEditor()
@@ -162,6 +195,7 @@ juce::String AnalyzerProcessor::projectId() const
 void AnalyzerProcessor::publishAnalysis(bool writeSidecarWhenOffline)
 {
     auto report = juce::DynamicObject::Ptr(new juce::DynamicObject());
+    report->setProperty("schemaVersion", mastering::ipc::kCurrentSchemaVersion);
     report->setProperty("type", "track-analysis");
     report->setProperty("instanceId", state_.state.getProperty("instanceId"));
     report->setProperty("projectId", state_.state.getProperty("projectId"));

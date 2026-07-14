@@ -18,11 +18,21 @@ struct SpectrumProfile {
     double airDb {-120.0};
 };
 
+// Naming contract (Milestone 0):
+// - samplePeakDbfs is always sample peak.
+// - estimatedTruePeakDbtp is only meaningful when truePeakIsEstimate == true
+//   (offline cubic estimate). Realtime meters leave this unset.
+// - integratedLufs is only meaningful when integratedLufsIsValid == true.
+// - estimatedLoudnessDb is an RMS-derived display estimate, NEVER labeled LUFS.
 struct AudioMetrics {
     double samplePeakDbfs {-120.0};
     double estimatedTruePeakDbtp {-120.0};
+    bool truePeakIsEstimate {false};
     double rmsDbfs {-120.0};
+    double estimatedLoudnessDb {-120.0};
+    bool estimatedLoudnessIsValid {false};
     double integratedLufs {-120.0};
+    bool integratedLufsIsValid {false};
     double crestFactorDb {0.0};
     double stereoCorrelation {1.0};
     double transientDensityHz {0.0};
@@ -66,5 +76,7 @@ private:
 };
 
 [[nodiscard]] std::string toJson(const AudioMetrics& metrics);
+[[nodiscard]] bool jsonClaimsLufsForEstimate(std::string_view json);
+[[nodiscard]] bool jsonClaimsTruePeakWithoutEstimate(std::string_view json);
 
 } // namespace mastering::analysis

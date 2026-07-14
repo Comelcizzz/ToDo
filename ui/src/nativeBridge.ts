@@ -26,6 +26,7 @@ export type NativeCommand =
   | { type: "generate-mix-plan" }
   | { type: "select-variant"; variant: string }
   | { type: "apply-mix-plan" }
+  | { type: "reject-mix-plan" }
   | { type: "toggle-playback" }
   | { type: "toggle-ab" }
   | { type: "set-monitor"; source: "mix" | "reference" }

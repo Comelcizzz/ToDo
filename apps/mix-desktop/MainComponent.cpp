@@ -1,7 +1,9 @@
 #include "mix-desktop/MainComponent.h"
+#include "mastering/ipc/BridgeProtocol.h"
 #include "mastering/research/ResearchExample.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace mastering::desktop {
 namespace {
@@ -128,6 +130,17 @@ void MainComponent::handleCommand(const juce::var& command)
         selectVariant(object->getProperty("variant").toString());
     } else if (type == "apply-mix-plan") {
         applyMixPlan();
+    } else if (type == "reject-mix-plan") {
+        assistant::MixAdvisor::rejectPlan(currentPlan_);
+        project_.actions.clear();
+        for (const auto& adjustment : currentPlan_.trackAdjustments) {
+            project_.actions.push_back({
+                adjustment.actionId,
+                adjustment.trackId,
+                adjustment.targetGainDb,
+                assistant::actionStateToString(adjustment.state)
+            });
+        }
     } else if (type == "export-master") {
         exportBitDepth_ = juce::jlimit(
             24,
@@ -178,7 +191,15 @@ void MainComponent::handleCommand(const juce::var& command)
 void MainComponent::handleBridgeAnalysis(const juce::var& report)
 {
     const auto* object = report.getDynamicObject();
-    if (object == nullptr || object->getProperty("type").toString() != "track-analysis")
+    if (object == nullptr)
+        return;
+
+    const auto payload = juce::JSON::toString(report, false);
+    const auto validation = ipc::validateTrackAnalysisPayload(payload.toStdString());
+    if (!validation.ok)
+        return;
+
+    if (object->getProperty("type").toString() != "track-analysis")
         return;
 
     const auto roleName = object->getProperty("role").toString().toStdString();
@@ -190,10 +211,20 @@ void MainComponent::handleBridgeAnalysis(const juce::var& report)
     analysis::AudioMetrics metrics;
     const auto* metricsObject = metricsValue.getDynamicObject();
     metrics.samplePeakDbfs = static_cast<double>(metricsObject->getProperty("samplePeakDbfs"));
-    metrics.estimatedTruePeakDbtp =
-        static_cast<double>(metricsObject->getProperty("estimatedTruePeakDbtp"));
     metrics.rmsDbfs = static_cast<double>(metricsObject->getProperty("rmsDbfs"));
-    metrics.integratedLufs = static_cast<double>(metricsObject->getProperty("integratedLufs"));
+    metrics.estimatedLoudnessDb = static_cast<double>(
+        metricsObject->hasProperty("estimatedLoudnessDb")
+            ? metricsObject->getProperty("estimatedLoudnessDb")
+            : metricsObject->getProperty("rmsDbfs"));
+    metrics.estimatedLoudnessIsValid = true;
+    metrics.truePeakIsEstimate = static_cast<bool>(metricsObject->getProperty("truePeakIsEstimate"));
+    metrics.integratedLufsIsValid =
+        static_cast<bool>(metricsObject->getProperty("integratedLufsIsValid"));
+    if (metrics.truePeakIsEstimate)
+        metrics.estimatedTruePeakDbtp =
+            static_cast<double>(metricsObject->getProperty("estimatedTruePeakDbtp"));
+    if (metrics.integratedLufsIsValid)
+        metrics.integratedLufs = static_cast<double>(metricsObject->getProperty("integratedLufs"));
     metrics.crestFactorDb = static_cast<double>(metricsObject->getProperty("crestFactorDb"));
     metrics.stereoCorrelation =
         static_cast<double>(metricsObject->getProperty("stereoCorrelation"));
@@ -392,12 +423,14 @@ void MainComponent::importStems(const juce::Array<juce::File>& files)
 {
     if (files.isEmpty())
         return;
-    project_.tracks = engine_.importFiles(files);
-    if (!project_.tracks.empty()) {
-        project_.sampleRate = project_.tracks.front().metrics.sampleRate;
-        if (project_.name == "Untitled Mix")
-            project_.name = files.getFirst().getParentDirectory().getFileName().toStdString();
-    }
+    // Failed/empty decode is a no-op so project model and engine stay in sync.
+    auto imported = engine_.importFiles(files);
+    if (imported.empty())
+        return;
+    project_.tracks = std::move(imported);
+    project_.sampleRate = project_.tracks.front().metrics.sampleRate;
+    if (project_.name == "Untitled Mix")
+        project_.name = files.getFirst().getParentDirectory().getFileName().toStdString();
     currentPlan_ = {};
     planVariants_.clear();
     pushState();
@@ -429,12 +462,15 @@ void MainComponent::saveProject(bool chooseDestination)
 
 void MainComponent::openProject(const juce::File& file)
 {
-    const auto restored = project::deserialize(file.loadFileAsString().toStdString());
+    project::DeserializeError error;
+    const auto restored = project::deserialize(file.loadFileAsString().toStdString(), error);
     if (!restored) {
         juce::AlertWindow::showMessageBoxAsync(
             juce::MessageBoxIconType::WarningIcon,
             "Project could not be opened",
-            "The file is invalid or uses an unsupported schema version.");
+            error.message.empty()
+                ? juce::String("The file is invalid or uses an unsupported schema version.")
+                : juce::String(error.message));
         return;
     }
     project_ = *restored;
@@ -443,8 +479,8 @@ void MainComponent::openProject(const juce::File& file)
     planVariants_.clear();
     engine_.loadProject(project_);
     if (!project_.referencePath.empty()) {
-        juce::String error;
-        if (engine_.loadReference(juce::File(project_.referencePath), error)) {
+        juce::String referenceError;
+        if (engine_.loadReference(juce::File(project_.referencePath), referenceError)) {
             juce::AudioFormatManager manager;
             manager.registerBasicFormats();
             if (auto reader = std::unique_ptr<juce::AudioFormatReader>(
@@ -500,17 +536,18 @@ void MainComponent::applyMixPlan()
 {
     if (currentPlan_.trackAdjustments.empty() && planVariants_.empty())
         generateMixPlan();
+    assistant::MixAdvisor::applyPlanToProject(project_, currentPlan_);
     engine_.applyPlan(currentPlan_);
+    project_.actions.clear();
     for (const auto& adjustment : currentPlan_.trackAdjustments) {
-        const auto match = std::ranges::find_if(project_.tracks, [&adjustment](const auto& track) {
-            return track.id == adjustment.trackId;
+        project_.actions.push_back({
+            adjustment.actionId,
+            adjustment.trackId,
+            adjustment.targetGainDb,
+            assistant::actionStateToString(adjustment.state)
         });
-        if (match != project_.tracks.end()) {
-            match->gainDb += adjustment.gainDeltaDb;
-            match->processing = adjustment.processing;
-        }
     }
-    project_.masterProcessing = currentPlan_.masterProcessing;
+    project_.selectedVariant = assistant::mixVariantToString(selectedVariant_);
     pushState();
 }
 

@@ -64,7 +64,7 @@ TEST_CASE("Mix advisor bounds automatic gain and reports sub conflict", "[assist
     const auto plan = advisor.createPlan(project);
 
     REQUIRE(plan.trackAdjustments.size() == 2);
-    CHECK(plan.trackAdjustments.front().gainDeltaDb == Catch::Approx(9.0));
+    CHECK(plan.trackAdjustments.front().targetGainDb == Catch::Approx(9.0));
     CHECK_FALSE(plan.suggestions.empty());
 }
 

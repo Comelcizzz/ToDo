@@ -273,12 +273,20 @@ export function MixerView({ state }: { state: SuiteState }) {
             </div>
 
             {state.suggestions.length > 0 && (
-              <button
-                className="button button--wide"
-                onClick={() => sendCommand({ type: "apply-mix-plan" })}
-              >
-                Apply selected variant
-              </button>
+              <>
+                <button
+                  className="button button--wide"
+                  onClick={() => sendCommand({ type: "apply-mix-plan" })}
+                >
+                  Apply selected variant
+                </button>
+                <button
+                  className="button button--wide"
+                  onClick={() => sendCommand({ type: "reject-mix-plan" })}
+                >
+                  Reject plan
+                </button>
+              </>
             )}
           </aside>
         </div>

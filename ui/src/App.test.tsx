@@ -8,16 +8,22 @@ describe("Mastering Audio UI", () => {
   });
 
   it("shows the standalone stem workflow", () => {
-    render(<App />);
+    const { unmount } = render(<App />);
     expect(screen.getByText("Stem Mix Suite")).toBeInTheDocument();
     expect(screen.getByText("Drop exported FL Studio stems here")).toBeInTheDocument();
     expect(screen.getByText("Export ML example")).toBeDisabled();
+    unmount();
   });
 
   it("shows analyzer metrics in plugin mode", () => {
     window.location.hash = "#plugin";
-    render(<App />);
+    const { unmount } = render(<App />);
     expect(screen.getByText("FL Studio track analyzer")).toBeInTheDocument();
     expect(screen.getByLabelText("Signal role")).toBeInTheDocument();
+    expect(screen.getAllByText("Estimated Loudness").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Sample Peak").length).toBeGreaterThan(0);
+    expect(screen.queryByText("LUFS")).not.toBeInTheDocument();
+    expect(screen.queryByText("True peak")).not.toBeInTheDocument();
+    unmount();
   });
 });

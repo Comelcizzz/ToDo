@@ -26,6 +26,7 @@ add_library(mastering_audio_core STATIC
     modules/assistant/src/MixAdvisor.cpp
     modules/project-bridge/src/ProjectDocument.cpp
     modules/research-export/src/ResearchExample.cpp
+    modules/ipc/src/BridgeProtocol.cpp
 )
 
 target_include_directories(mastering_audio_core
@@ -35,6 +36,7 @@ target_include_directories(mastering_audio_core
         modules/assistant/include
         modules/project-bridge/include
         modules/research-export/include
+        modules/ipc/include
 )
 
 target_compile_features(mastering_audio_core PUBLIC cxx_std_23)
@@ -62,6 +64,7 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tests/ProjectDocumentTests.cpp
         tests/RenderPathTests.cpp
         tests/ResearchExampleTests.cpp
+        tests/Milestone0RegressionTests.cpp
     )
     target_link_libraries(mastering_audio_tests
         PRIVATE

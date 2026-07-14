@@ -277,8 +277,12 @@ AudioMetrics AudioAnalyzer::analyze(
 
     result.samplePeakDbfs = toDb(peak);
     result.estimatedTruePeakDbtp = toDb(estimatedTruePeak(channels));
+    result.truePeakIsEstimate = true;
     result.rmsDbfs = toDb(rms);
+    result.estimatedLoudnessDb = result.rmsDbfs;
+    result.estimatedLoudnessIsValid = true;
     result.integratedLufs = integratedLufs(channels, sampleRate);
+    result.integratedLufsIsValid = true;
     result.crestFactorDb = result.samplePeakDbfs - result.rmsDbfs;
     result.transientDensityHz = transientDensity(mono, sampleRate);
     result.spectrum = calculateSpectrum(mono, sampleRate);
@@ -414,9 +418,15 @@ AudioMetrics RealtimeMeter::snapshot() const noexcept
         : 0.0;
 
     metrics.samplePeakDbfs = toDb(peak_.load(std::memory_order_relaxed));
-    metrics.estimatedTruePeakDbtp = metrics.samplePeakDbfs;
+    // Realtime path does not claim true-peak or LUFS. Sample peak and RMS-derived
+    // estimated loudness are the only honest display values until Milestone 1.
+    metrics.estimatedTruePeakDbtp = -120.0;
+    metrics.truePeakIsEstimate = false;
     metrics.rmsDbfs = toDb(rms);
-    metrics.integratedLufs = metrics.rmsDbfs - 0.691;
+    metrics.estimatedLoudnessDb = metrics.rmsDbfs;
+    metrics.estimatedLoudnessIsValid = true;
+    metrics.integratedLufs = -120.0;
+    metrics.integratedLufsIsValid = false;
     metrics.crestFactorDb = metrics.samplePeakDbfs - metrics.rmsDbfs;
     metrics.durationSeconds = sampleRate > 0.0 ? static_cast<double>(samples) / sampleRate : 0.0;
     metrics.transientDensityHz = metrics.durationSeconds > 0.0
@@ -439,22 +449,42 @@ std::string toJson(const AudioMetrics& metrics)
     std::ostringstream output;
     output << std::fixed << std::setprecision(4)
            << R"({"samplePeakDbfs":)" << metrics.samplePeakDbfs
-           << R"(,"estimatedTruePeakDbtp":)" << metrics.estimatedTruePeakDbtp
            << R"(,"rmsDbfs":)" << metrics.rmsDbfs
-           << R"(,"integratedLufs":)" << metrics.integratedLufs
+           << R"(,"estimatedLoudnessDb":)" << metrics.estimatedLoudnessDb
+           << R"(,"estimatedLoudnessIsValid":)" << (metrics.estimatedLoudnessIsValid ? "true" : "false")
            << R"(,"crestFactorDb":)" << metrics.crestFactorDb
            << R"(,"stereoCorrelation":)" << metrics.stereoCorrelation
            << R"(,"transientDensityHz":)" << metrics.transientDensityHz
            << R"(,"durationSeconds":)" << metrics.durationSeconds
            << R"(,"sampleRate":)" << metrics.sampleRate
            << R"(,"channels":)" << metrics.channels
-           << R"(,"spectrum":{"subDb":)" << metrics.spectrum.subDb
+           << R"(,"truePeakIsEstimate":)" << (metrics.truePeakIsEstimate ? "true" : "false")
+           << R"(,"integratedLufsIsValid":)" << (metrics.integratedLufsIsValid ? "true" : "false");
+    if (metrics.truePeakIsEstimate)
+        output << R"(,"estimatedTruePeakDbtp":)" << metrics.estimatedTruePeakDbtp;
+    if (metrics.integratedLufsIsValid)
+        output << R"(,"integratedLufs":)" << metrics.integratedLufs;
+    output << R"(,"spectrum":{"subDb":)" << metrics.spectrum.subDb
            << R"(,"bassDb":)" << metrics.spectrum.bassDb
            << R"(,"lowMidDb":)" << metrics.spectrum.lowMidDb
            << R"(,"midDb":)" << metrics.spectrum.midDb
            << R"(,"presenceDb":)" << metrics.spectrum.presenceDb
            << R"(,"airDb":)" << metrics.spectrum.airDb << "}}";
     return output.str();
+}
+
+bool jsonClaimsLufsForEstimate(std::string_view json)
+{
+    const auto hasLufsField = json.find("\"integratedLufs\"") != std::string_view::npos;
+    const auto markedValid = json.find("\"integratedLufsIsValid\":true") != std::string_view::npos;
+    return hasLufsField && !markedValid;
+}
+
+bool jsonClaimsTruePeakWithoutEstimate(std::string_view json)
+{
+    const auto hasTpField = json.find("\"estimatedTruePeakDbtp\"") != std::string_view::npos;
+    const auto markedEstimate = json.find("\"truePeakIsEstimate\":true") != std::string_view::npos;
+    return hasTpField && !markedEstimate;
 }
 
 } // namespace mastering::analysis

@@ -37,19 +37,26 @@ json spectrumToJson(const analysis::SpectrumProfile& spectrum)
 
 json metricsToJson(const analysis::AudioMetrics& metrics)
 {
-    return {
+    json value {
         {"samplePeakDbfs", metrics.samplePeakDbfs},
-        {"estimatedTruePeakDbtp", metrics.estimatedTruePeakDbtp},
         {"rmsDbfs", metrics.rmsDbfs},
-        {"integratedLufs", metrics.integratedLufs},
+        {"estimatedLoudnessDb", metrics.estimatedLoudnessDb},
+        {"estimatedLoudnessIsValid", metrics.estimatedLoudnessIsValid},
         {"crestFactorDb", metrics.crestFactorDb},
         {"stereoCorrelation", metrics.stereoCorrelation},
         {"transientDensityHz", metrics.transientDensityHz},
         {"durationSeconds", metrics.durationSeconds},
         {"sampleRate", metrics.sampleRate},
         {"channels", metrics.channels},
+        {"truePeakIsEstimate", metrics.truePeakIsEstimate},
+        {"integratedLufsIsValid", metrics.integratedLufsIsValid},
         {"spectrum", spectrumToJson(metrics.spectrum)}
     };
+    if (metrics.truePeakIsEstimate)
+        value["estimatedTruePeakDbtp"] = metrics.estimatedTruePeakDbtp;
+    if (metrics.integratedLufsIsValid)
+        value["integratedLufs"] = metrics.integratedLufs;
+    return value;
 }
 
 json processingToJson(const dsp::ProcessorSettings& settings)
@@ -91,14 +98,28 @@ void readMetrics(const json& value, analysis::AudioMetrics& metrics)
 {
     read(value, "samplePeakDbfs", metrics.samplePeakDbfs);
     read(value, "estimatedTruePeakDbtp", metrics.estimatedTruePeakDbtp);
+    read(value, "truePeakIsEstimate", metrics.truePeakIsEstimate);
     read(value, "rmsDbfs", metrics.rmsDbfs);
+    read(value, "estimatedLoudnessDb", metrics.estimatedLoudnessDb);
+    read(value, "estimatedLoudnessIsValid", metrics.estimatedLoudnessIsValid);
     read(value, "integratedLufs", metrics.integratedLufs);
+    read(value, "integratedLufsIsValid", metrics.integratedLufsIsValid);
     read(value, "crestFactorDb", metrics.crestFactorDb);
     read(value, "stereoCorrelation", metrics.stereoCorrelation);
     read(value, "transientDensityHz", metrics.transientDensityHz);
     read(value, "durationSeconds", metrics.durationSeconds);
     read(value, "sampleRate", metrics.sampleRate);
     read(value, "channels", metrics.channels);
+    // Legacy schema v1 files stored RMS-derived values as integratedLufs/true peak.
+    // Keep numeric fields but do not mark them valid unless explicitly flagged.
+    if (!value.contains("integratedLufsIsValid") && value.contains("integratedLufs"))
+        metrics.integratedLufsIsValid = false;
+    if (!value.contains("truePeakIsEstimate") && value.contains("estimatedTruePeakDbtp"))
+        metrics.truePeakIsEstimate = false;
+    if (!metrics.estimatedLoudnessIsValid && value.contains("rmsDbfs")) {
+        metrics.estimatedLoudnessDb = metrics.rmsDbfs;
+        metrics.estimatedLoudnessIsValid = true;
+    }
     if (const auto iterator = value.find("spectrum"); iterator != value.end()) {
         read(*iterator, "subDb", metrics.spectrum.subDb);
         read(*iterator, "bassDb", metrics.spectrum.bassDb);
@@ -232,8 +253,10 @@ std::string serialize(const ProjectDocument& project)
         {"name", project.name},
         {"referencePath", project.referencePath},
         {"sampleRate", project.sampleRate},
+        {"selectedVariant", project.selectedVariant},
         {"masterProcessing", processingToJson(project.masterProcessing)},
-        {"tracks", json::array()}
+        {"tracks", json::array()},
+        {"actions", json::array()}
     };
     for (const auto& track : project.tracks) {
         value["tracks"].push_back({
@@ -250,10 +273,24 @@ std::string serialize(const ProjectDocument& project)
             {"polarityInverted", track.polarityInverted}
         });
     }
+    for (const auto& action : project.actions) {
+        value["actions"].push_back({
+            {"actionId", action.actionId},
+            {"trackId", action.trackId},
+            {"targetGainDb", action.targetGainDb},
+            {"state", action.state}
+        });
+    }
     return value.dump(2);
 }
 
 std::optional<ProjectDocument> deserialize(std::string_view source)
+{
+    DeserializeError error;
+    return deserialize(source, error);
+}
+
+std::optional<ProjectDocument> deserialize(std::string_view source, DeserializeError& error)
 {
     try {
         const auto value = json::parse(source);
@@ -263,8 +300,24 @@ std::optional<ProjectDocument> deserialize(std::string_view source)
         read(value, "name", project.name);
         read(value, "referencePath", project.referencePath);
         read(value, "sampleRate", project.sampleRate);
-        if (project.schemaVersion != 1 || project.id.empty())
+        read(value, "selectedVariant", project.selectedVariant);
+
+        if (project.schemaVersion < kMinSupportedSchemaVersion) {
+            error.message = "Project schemaVersion is too old and unsupported";
             return std::nullopt;
+        }
+        if (project.schemaVersion > kCurrentSchemaVersion) {
+            error.message = "Unsupported project schemaVersion "
+                + std::to_string(project.schemaVersion)
+                + " (max supported is "
+                + std::to_string(kCurrentSchemaVersion)
+                + ")";
+            return std::nullopt;
+        }
+        if (project.id.empty()) {
+            error.message = "Project id is required";
+            return std::nullopt;
+        }
 
         if (const auto iterator = value.find("masterProcessing"); iterator != value.end())
             readProcessing(*iterator, project.masterProcessing);
@@ -294,8 +347,24 @@ std::optional<ProjectDocument> deserialize(std::string_view source)
                 project.tracks.push_back(std::move(track));
             }
         }
+
+        if (const auto iterator = value.find("actions");
+            iterator != value.end() && iterator->is_array()) {
+            for (const auto& actionValue : *iterator) {
+                AppliedAction action;
+                read(actionValue, "actionId", action.actionId);
+                read(actionValue, "trackId", action.trackId);
+                read(actionValue, "targetGainDb", action.targetGainDb);
+                read(actionValue, "state", action.state);
+                project.actions.push_back(std::move(action));
+            }
+        }
+
+        // Migrated v1 projects become current schema on next save.
+        project.schemaVersion = kCurrentSchemaVersion;
         return project;
-    } catch (const json::exception&) {
+    } catch (const json::exception& exception) {
+        error.message = std::string("Malformed project JSON: ") + exception.what();
         return std::nullopt;
     }
 }

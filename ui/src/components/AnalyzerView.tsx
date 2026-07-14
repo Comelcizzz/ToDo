@@ -20,6 +20,9 @@ const roles: TrackRole[] = [
 
 export function AnalyzerView({ state }: { state: SuiteState }) {
   const metrics = state.analyzerMetrics ?? emptyMetrics;
+  const estimatedLoudness = metrics.estimatedLoudnessIsValid
+    ? (metrics.estimatedLoudnessDb ?? metrics.rmsDbfs)
+    : metrics.rmsDbfs;
 
   return (
     <main className="plugin-layout">
@@ -28,7 +31,10 @@ export function AnalyzerView({ state }: { state: SuiteState }) {
           <p className="eyebrow">FL Studio track analyzer</p>
           <h1>Mastering Audio</h1>
         </div>
-        <span className={`status ${state.connected ? "status--online" : ""}`}>
+        <span
+          className={`status ${state.connected ? "status--online" : "status--offline"}`}
+          data-state={state.connected ? "connected" : "offline"}
+        >
           {state.connected ? "Suite connected" : "Offline report"}
         </span>
       </header>
@@ -56,14 +62,14 @@ export function AnalyzerView({ state }: { state: SuiteState }) {
 
       <section className="metric-grid">
         <div className="metric-card">
-          <span>Integrated</span>
-          <strong>{metrics.integratedLufs.toFixed(1)}</strong>
-          <small>LUFS</small>
+          <span>Estimated Loudness</span>
+          <strong>{estimatedLoudness.toFixed(1)}</strong>
+          <small>dBFS RMS-derived</small>
         </div>
         <div className="metric-card">
-          <span>True peak</span>
-          <strong>{metrics.estimatedTruePeakDbtp.toFixed(1)}</strong>
-          <small>dBTP</small>
+          <span>Sample Peak</span>
+          <strong>{metrics.samplePeakDbfs.toFixed(1)}</strong>
+          <small>dBFS</small>
         </div>
         <div className="metric-card">
           <span>Crest</span>
@@ -78,8 +84,8 @@ export function AnalyzerView({ state }: { state: SuiteState }) {
       </section>
 
       <section className="panel">
-        <Meter label="Peak" value={metrics.samplePeakDbfs} />
-        <Meter label="Average" value={metrics.rmsDbfs} />
+        <Meter label="Sample Peak" value={metrics.samplePeakDbfs} />
+        <Meter label="Estimated Loudness" value={estimatedLoudness} />
         <Meter
           label="Correlation"
           value={metrics.stereoCorrelation}

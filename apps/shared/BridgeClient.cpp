@@ -1,12 +1,13 @@
 #include "shared/BridgeClient.h"
+#include "mastering/ipc/BridgeProtocol.h"
 
 namespace mastering::app {
 namespace {
-constexpr int bridgePort = 58'432;
+constexpr int bridgePort = mastering::ipc::kBridgePort;
 }
 
 BridgeClient::BridgeClient()
-    : juce::InterprocessConnection(true, 0x4d415542)
+    : juce::InterprocessConnection(true, mastering::ipc::kBridgeMagic)
 {
 }
 

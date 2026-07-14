@@ -202,7 +202,14 @@ MixPlan MixAdvisor::createPlan(
             targetRms(track.role, variant) - usableRms,
             -9.0,
             9.0);
-        plan.trackAdjustments.push_back({track.id, gainDelta, settings});
+        const auto targetGain = track.gainDb + gainDelta;
+        plan.trackAdjustments.push_back({
+            project::makeProjectId(),
+            track.id,
+            targetGain,
+            settings,
+            ActionState::pending
+        });
 
         if (std::abs(gainDelta) > 1.0) {
             addSuggestion(
@@ -384,6 +391,40 @@ std::vector<MixPlan> MixAdvisor::createVariants(
     };
 }
 
+void MixAdvisor::applyPlanToProject(project::ProjectDocument& project, MixPlan& plan)
+{
+    for (auto& adjustment : plan.trackAdjustments) {
+        if (adjustment.state == ActionState::rejected)
+            continue;
+        const auto match = std::ranges::find_if(project.tracks, [&adjustment](auto& track) {
+            return track.id == adjustment.trackId;
+        });
+        if (match == project.tracks.end())
+            continue;
+        // Absolute assignment — repeated Apply is a no-op when already at target.
+        match->gainDb = adjustment.targetGainDb;
+        match->processing = adjustment.processing;
+        adjustment.state = ActionState::applied;
+    }
+    project.masterProcessing = plan.masterProcessing;
+    project.selectedVariant = plan.variantLabel;
+    project.actions.clear();
+    for (const auto& adjustment : plan.trackAdjustments) {
+        project.actions.push_back({
+            adjustment.actionId,
+            adjustment.trackId,
+            adjustment.targetGainDb,
+            actionStateToString(adjustment.state)
+        });
+    }
+}
+
+void MixAdvisor::rejectPlan(MixPlan& plan) noexcept
+{
+    for (auto& adjustment : plan.trackAdjustments)
+        adjustment.state = ActionState::rejected;
+}
+
 std::string suggestionKindToString(SuggestionKind kind)
 {
     switch (kind) {
@@ -418,6 +459,27 @@ std::optional<MixVariant> mixVariantFromString(std::string_view value)
     return std::nullopt;
 }
 
+std::string actionStateToString(ActionState state)
+{
+    switch (state) {
+    case ActionState::pending: return "pending";
+    case ActionState::applied: return "applied";
+    case ActionState::rejected: return "rejected";
+    }
+    return "pending";
+}
+
+std::optional<ActionState> actionStateFromString(std::string_view value)
+{
+    if (value == "pending")
+        return ActionState::pending;
+    if (value == "applied")
+        return ActionState::applied;
+    if (value == "rejected")
+        return ActionState::rejected;
+    return std::nullopt;
+}
+
 std::string toJson(const MixPlan& plan)
 {
     nlohmann::json value {
@@ -436,8 +498,10 @@ std::string toJson(const MixPlan& plan)
     }
     for (const auto& adjustment : plan.trackAdjustments) {
         value["trackAdjustments"].push_back({
+            {"actionId", adjustment.actionId},
             {"trackId", adjustment.trackId},
-            {"gainDeltaDb", adjustment.gainDeltaDb},
+            {"targetGainDb", adjustment.targetGainDb},
+            {"state", actionStateToString(adjustment.state)},
             {"amount", adjustment.processing.amount},
             {"highPassHz", adjustment.processing.equalizer.highPassHz},
             {"saturation", adjustment.processing.saturation}

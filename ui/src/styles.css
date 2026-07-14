@@ -1,8 +1,20 @@
 :root {
-  color: #f5f7fb;
-  background: #090b10;
-  font-family: "Sora", "Avenir Next", "Segoe UI Variable", sans-serif;
+  color: var(--color-text);
+  background: var(--color-bg);
+  font-family: var(--font-sans);
   font-synthesis: none;
+  --font-sans: "Sora", "Avenir Next", "Segoe UI Variable", sans-serif;
+  --font-mono: "IBM Plex Mono", "Cascadia Mono", "Consolas", monospace;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+  --color-bg: #090b10;
+  --color-text: #f5f7fb;
   --panel: #11151d;
   --panel-raised: #171c25;
   --border: #252c38;
@@ -12,6 +24,8 @@
   --cyan: #54dce8;
   --danger: #ff5c70;
   --warning: #f5c451;
+  --state-disabled: #3a4250;
+  --state-loading: #5c6a80;
 }
 
 * {
@@ -74,9 +88,37 @@ p {
   transition: 150ms ease;
 }
 
-.button:hover {
+.button:hover:not(:disabled) {
   border-color: #566278;
   background: #242b38;
+}
+
+.button:disabled,
+.button[aria-disabled="true"] {
+  border-color: var(--state-disabled);
+  color: var(--muted);
+  background: #141922;
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.status--offline {
+  color: var(--warning);
+}
+
+.status--error {
+  color: var(--danger);
+}
+
+.status--loading {
+  color: var(--state-loading);
+}
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  background: var(--panel);
 }
 
 .button--primary {
