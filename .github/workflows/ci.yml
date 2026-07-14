@@ -60,10 +60,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Install WebView2 SDK
+        shell: pwsh
+        run: nuget install Microsoft.Web.WebView2 -OutputDirectory "$env:RUNNER_TEMP\webview2" -NonInteractive
       - name: Configure products
         shell: bash
         run: |
           cmake -S . -B build -G "Visual Studio 17 2022" -A x64 \
+            -DJUCE_WEBVIEW2_PACKAGE_LOCATION="$RUNNER_TEMP/webview2" \
             -DMASTERING_AUDIO_BUILD_PRODUCTS=ON \
             -DMASTERING_AUDIO_BUILD_TESTS=ON
       - name: Build and test

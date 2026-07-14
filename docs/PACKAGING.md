@@ -7,6 +7,7 @@
 - CMake ≥ 3.25
 - Node.js ≥ 22
 - WebView2 Runtime (usually already installed on Windows 11)
+- Microsoft.Web.WebView2 NuGet SDK package for static loader builds
 - Valid JUCE licence for commercial distribution of closed-source builds
 
 ## Release build
@@ -14,7 +15,9 @@
 ```powershell
 npm ci
 npm run build
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
+nuget install Microsoft.Web.WebView2 -OutputDirectory build/webview2
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+  -DJUCE_WEBVIEW2_PACKAGE_LOCATION=build/webview2
 cmake --build build --config Release --parallel
 ctest --test-dir build -C Release --output-on-failure
 ```

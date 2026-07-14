@@ -105,6 +105,7 @@ if(MASTERING_AUDIO_BUILD_PRODUCTS)
         IS_MIDI_EFFECT FALSE
         EDITOR_WANTS_KEYBOARD_FOCUS TRUE
         NEEDS_WEB_BROWSER TRUE
+        NEEDS_WEBVIEW2 TRUE
         COPY_PLUGIN_AFTER_BUILD FALSE
     )
     target_sources(MasteringAudioAnalyzer PRIVATE
@@ -133,6 +134,7 @@ if(MASTERING_AUDIO_BUILD_PRODUCTS)
         BUNDLE_ID "audio.mastering.suite"
         PRODUCT_NAME "Mastering Audio Suite"
         NEEDS_WEB_BROWSER TRUE
+        NEEDS_WEBVIEW2 TRUE
     )
     target_sources(MasteringAudioSuite PRIVATE
         apps/mix-desktop/Main.cpp
