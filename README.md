@@ -19,8 +19,8 @@ Everything runs offline. No accounts, no cloud upload.
 Shared C++ core modules:
 
 - `modules/audio-analysis` — LUFS, peak/true-peak estimate, crest, spectrum, stereo, transients
-- `modules/dsp` — EQ / compressor / saturation / clipper chain with amount blend
-- `modules/assistant` — role-aware explainable mix plan with guardrails
+- `modules/dsp` — EQ / compressor / saturation / clipper, true-peak limiter, kick→bass separation
+- `modules/assistant` — role-aware explainable mix plans (balanced / punchy / vocal-forward)
 - `modules/project-bridge` — `.masuite` project schema and stem role inference
 
 ## Quick start (developer)

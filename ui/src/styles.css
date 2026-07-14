@@ -326,7 +326,7 @@ p {
 
 .track-row {
   display: grid;
-  grid-template-columns: 32px minmax(112px, 0.8fr) minmax(150px, 1.5fr) minmax(112px, 0.75fr) 30px 30px;
+  grid-template-columns: 32px minmax(112px, 0.8fr) minmax(112px, 0.75fr) minmax(96px, 0.6fr) 30px 30px 30px;
   align-items: center;
   gap: 10px;
   min-height: 62px;
@@ -334,6 +334,23 @@ p {
   border: 1px solid #272e3a;
   border-radius: 9px;
   background: #121720;
+}
+
+.track-row--extended {
+  grid-template-columns: 32px minmax(110px, 0.85fr) minmax(100px, 0.7fr) minmax(90px, 0.55fr) 30px 30px 30px;
+}
+
+.variant-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 4px;
+}
+
+.variant-row .button {
+  flex: 1 1 auto;
+  min-width: 88px;
+  text-transform: capitalize;
 }
 
 .role {

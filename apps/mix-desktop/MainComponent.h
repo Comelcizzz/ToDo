@@ -6,6 +6,7 @@
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <optional>
+#include <vector>
 
 namespace mastering::desktop {
 
@@ -32,15 +33,14 @@ private:
     void chooseProjectToOpen();
     void chooseStems();
     void chooseReference();
-    void chooseMasterDestination();
+    void chooseMasterDestination(int bitsPerSample);
     void importStems(const juce::Array<juce::File>& files);
     void saveProject(bool chooseDestination);
     void openProject(const juce::File& file);
     void generateMixPlan();
     void applyMixPlan();
+    void selectVariant(const juce::String& variant);
     void pushState();
-    [[nodiscard]] std::optional<analysis::AudioMetrics> analyzeReference(
-        const juce::File& file) const;
     [[nodiscard]] project::TrackRecord* findTrack(const juce::String& id);
 
     app::WebViewComponent webView_ {app::WebViewComponent::Product::desktopSuite};
@@ -48,8 +48,11 @@ private:
     BridgeServer bridge_;
     assistant::MixAdvisor advisor_;
     project::ProjectDocument project_;
+    std::vector<assistant::MixPlan> planVariants_;
     assistant::MixPlan currentPlan_;
+    assistant::MixVariant selectedVariant_ {assistant::MixVariant::balanced};
     std::optional<analysis::AudioMetrics> referenceMetrics_;
+    int exportBitDepth_ {24};
     juce::File projectFile_;
     std::unique_ptr<juce::FileChooser> fileChooser_;
 

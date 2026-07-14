@@ -20,9 +20,10 @@
 
 1. Create or open a Suite project.
 2. Import the exported stems. Roles are inferred from filenames and can be corrected.
-3. Click **Analyze mix**. Review every suggestion explanation.
-4. Optionally import a reference track. The assistant only applies capped tonal direction after loudness-aware comparison.
-5. Apply the plan at partial amount, audition with transport mute/solo, then **Export master** as 24-bit WAV.
+3. Use gain, pan, polarity, mute, and solo while auditioning synchronized playback.
+4. Click **Analyze mix**, then choose a bounded variant: balanced, punchy, or vocal-forward.
+5. Optionally import a reference and toggle loudness-matched MIX/REF A/B before judging tone.
+6. Apply the selected plan, then export a master as 24-bit PCM or 32-bit float WAV.
 
 ## Guardrails
 

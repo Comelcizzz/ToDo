@@ -23,13 +23,20 @@ export type NativeCommand =
   | { type: "import-reference" }
   | { type: "analyze" }
   | { type: "generate-mix-plan" }
+  | { type: "select-variant"; variant: string }
   | { type: "apply-mix-plan" }
   | { type: "toggle-playback" }
-  | { type: "export-master" }
+  | { type: "toggle-ab" }
+  | { type: "set-monitor"; source: "mix" | "reference" }
+  | { type: "export-master"; bitsPerSample?: number }
   | { type: "set-role"; trackId?: string; role: string }
   | { type: "set-track-gain"; trackId: string; value: number }
   | { type: "set-track-pan"; trackId: string; value: number }
-  | { type: "toggle-track"; trackId: string; field: "muted" | "soloed" };
+  | {
+      type: "toggle-track";
+      trackId: string;
+      field: "muted" | "soloed" | "polarityInverted";
+    };
 
 export function sendCommand(command: NativeCommand): void {
   window.__JUCE__?.backend.emitEvent("masteringAudioCommand", command);

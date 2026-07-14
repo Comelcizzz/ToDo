@@ -22,6 +22,7 @@ FetchContent_MakeAvailable(nlohmann_json)
 add_library(mastering_audio_core STATIC
     modules/audio-analysis/src/AudioAnalyzer.cpp
     modules/dsp/src/ProcessorChain.cpp
+    modules/dsp/src/DynamicTools.cpp
     modules/assistant/src/MixAdvisor.cpp
     modules/project-bridge/src/ProjectDocument.cpp
 )
@@ -57,6 +58,7 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tests/AudioAnalyzerTests.cpp
         tests/ProcessorChainTests.cpp
         tests/ProjectDocumentTests.cpp
+        tests/RenderPathTests.cpp
     )
     target_link_libraries(mastering_audio_tests
         PRIVATE

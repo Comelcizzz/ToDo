@@ -2,9 +2,9 @@
 
 namespace mastering::plugin {
 
-AnalyzerEditor::AnalyzerEditor(AnalyzerProcessor& processor)
-    : AudioProcessorEditor(processor),
-      processor_(processor)
+AnalyzerEditor::AnalyzerEditor(AnalyzerProcessor& ownedProcessor)
+    : AudioProcessorEditor(ownedProcessor),
+      processor_(ownedProcessor)
 {
     addAndMakeVisible(webView_);
     webView_.setCommandHandler([this](const juce::var& command) {

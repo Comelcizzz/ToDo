@@ -1,8 +1,10 @@
 #include "mastering/assistant/MixAdvisor.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <nlohmann/json.hpp>
+#include <sstream>
 #include <string>
 
 namespace mastering::assistant {
@@ -34,33 +36,53 @@ bool isVocal(TrackRole role) noexcept
         || role == TrackRole::backingVocal;
 }
 
+double formatRounded(double value)
+{
+    return std::round(value * 10.0) / 10.0;
+}
+
 } // namespace
 
-double MixAdvisor::targetRms(TrackRole role) noexcept
+double MixAdvisor::targetRms(TrackRole role, MixVariant variant) noexcept
 {
+    double target = -24.0;
     switch (role) {
-    case TrackRole::kick: return -18.0;
-    case TrackRole::snare: return -19.0;
-    case TrackRole::drums: return -18.0;
-    case TrackRole::bass: return -20.0;
-    case TrackRole::rhythmGuitar: return -23.0;
-    case TrackRole::leadGuitar: return -24.0;
-    case TrackRole::cleanVocal: return -21.0;
-    case TrackRole::screamVocal: return -22.0;
-    case TrackRole::backingVocal: return -27.0;
-    case TrackRole::synth: return -27.0;
-    case TrackRole::orchestra: return -28.0;
-    case TrackRole::effects: return -30.0;
-    default: return -24.0;
+    case TrackRole::kick: target = -18.0; break;
+    case TrackRole::snare: target = -19.0; break;
+    case TrackRole::drums: target = -18.0; break;
+    case TrackRole::bass: target = -20.0; break;
+    case TrackRole::rhythmGuitar: target = -23.0; break;
+    case TrackRole::leadGuitar: target = -24.0; break;
+    case TrackRole::cleanVocal: target = -21.0; break;
+    case TrackRole::screamVocal: target = -22.0; break;
+    case TrackRole::backingVocal: target = -27.0; break;
+    case TrackRole::synth: target = -27.0; break;
+    case TrackRole::orchestra: target = -28.0; break;
+    case TrackRole::effects: target = -30.0; break;
+    default: break;
     }
+
+    if (variant == MixVariant::punchy) {
+        if (role == TrackRole::kick || role == TrackRole::snare || role == TrackRole::bass)
+            target += 1.0;
+        if (role == TrackRole::rhythmGuitar)
+            target -= 0.5;
+    } else if (variant == MixVariant::vocalForward) {
+        if (isVocal(role) && role != TrackRole::backingVocal)
+            target += 1.5;
+        if (role == TrackRole::rhythmGuitar || role == TrackRole::synth)
+            target -= 1.0;
+    }
+    return target;
 }
 
 dsp::ProcessorSettings MixAdvisor::settingsForRole(
     TrackRole role,
-    const analysis::AudioMetrics& metrics) noexcept
+    const analysis::AudioMetrics& metrics,
+    MixVariant variant) noexcept
 {
     dsp::ProcessorSettings settings;
-    settings.amount = 0.72;
+    settings.amount = variant == MixVariant::punchy ? 0.8 : 0.72;
     settings.clipCeilingDb = -1.0;
     settings.compressor.thresholdDb = -14.0;
     settings.compressor.ratio = 2.0;
@@ -70,13 +92,14 @@ dsp::ProcessorSettings MixAdvisor::settingsForRole(
     switch (role) {
     case TrackRole::kick:
         settings.equalizer.highPassHz = 28.0;
-        settings.compressor.attackMs = 18.0;
+        settings.compressor.attackMs = variant == MixVariant::punchy ? 12.0 : 18.0;
         settings.compressor.releaseMs = 70.0;
-        settings.saturation = 0.12;
+        settings.saturation = variant == MixVariant::punchy ? 0.18 : 0.12;
         break;
     case TrackRole::snare:
         settings.equalizer.highPassHz = 75.0;
         settings.equalizer.presenceHz = 3'500.0;
+        settings.equalizer.presenceGainDb = variant == MixVariant::punchy ? 1.0 : 0.0;
         settings.compressor.attackMs = 22.0;
         settings.saturation = 0.10;
         break;
@@ -94,12 +117,14 @@ dsp::ProcessorSettings MixAdvisor::settingsForRole(
         settings.compressor.ratio = 3.0;
         settings.compressor.attackMs = 16.0;
         settings.compressor.releaseMs = 90.0;
-        settings.saturation = 0.18;
+        settings.saturation = variant == MixVariant::punchy ? 0.24 : 0.18;
         break;
     case TrackRole::rhythmGuitar:
         settings.equalizer.highPassHz = 72.0;
         settings.equalizer.highShelfHz = 9'000.0;
         settings.equalizer.highShelfGainDb = -0.5;
+        settings.equalizer.presenceGainDb =
+            variant == MixVariant::vocalForward ? -1.2 : 0.0;
         settings.compressor.ratio = 1.5;
         settings.saturation = 0.08;
         break;
@@ -111,8 +136,8 @@ dsp::ProcessorSettings MixAdvisor::settingsForRole(
     case TrackRole::cleanVocal:
         settings.equalizer.highPassHz = 75.0;
         settings.equalizer.presenceHz = 2'800.0;
-        settings.equalizer.presenceGainDb = 0.7;
-        settings.equalizer.highShelfGainDb = 0.5;
+        settings.equalizer.presenceGainDb = variant == MixVariant::vocalForward ? 1.4 : 0.7;
+        settings.equalizer.highShelfGainDb = variant == MixVariant::vocalForward ? 1.0 : 0.5;
         settings.compressor.thresholdDb = -20.0;
         settings.compressor.ratio = 3.0;
         settings.compressor.attackMs = 8.0;
@@ -126,6 +151,7 @@ dsp::ProcessorSettings MixAdvisor::settingsForRole(
         settings.compressor.attackMs = 4.0;
         settings.compressor.releaseMs = 65.0;
         settings.saturation = 0.14;
+        settings.equalizer.presenceGainDb = variant == MixVariant::vocalForward ? 1.0 : 0.0;
         break;
     case TrackRole::backingVocal:
         settings.equalizer.highPassHz = 120.0;
@@ -155,9 +181,12 @@ dsp::ProcessorSettings MixAdvisor::settingsForRole(
 
 MixPlan MixAdvisor::createPlan(
     const project::ProjectDocument& project,
-    const std::optional<analysis::AudioMetrics>& reference) const
+    const std::optional<analysis::AudioMetrics>& reference,
+    MixVariant variant) const
 {
     MixPlan plan;
+    plan.variant = variant;
+    plan.variantLabel = mixVariantToString(variant);
     const project::TrackRecord* kick = nullptr;
     const project::TrackRecord* bass = nullptr;
     const project::TrackRecord* leadVocal = nullptr;
@@ -165,12 +194,12 @@ MixPlan MixAdvisor::createPlan(
     std::size_t bedCount = 0;
 
     for (const auto& track : project.tracks) {
-        auto settings = settingsForRole(track.role, track.metrics);
+        auto settings = settingsForRole(track.role, track.metrics, variant);
         const auto usableRms = std::isfinite(track.metrics.rmsDbfs)
             ? track.metrics.rmsDbfs
-            : targetRms(track.role);
+            : targetRms(track.role, variant);
         const auto gainDelta = std::clamp(
-            targetRms(track.role) - usableRms,
+            targetRms(track.role, variant) - usableRms,
             -9.0,
             9.0);
         plan.trackAdjustments.push_back({track.id, gainDelta, settings});
@@ -272,14 +301,26 @@ MixPlan MixAdvisor::createPlan(
         }
     }
 
-    plan.masterProcessing.amount = 0.65;
+    plan.masterProcessing.amount = variant == MixVariant::punchy ? 0.75 : 0.65;
     plan.masterProcessing.equalizer.highPassHz = 20.0;
-    plan.masterProcessing.compressor.thresholdDb = -12.0;
-    plan.masterProcessing.compressor.ratio = 1.5;
+    plan.masterProcessing.compressor.thresholdDb = variant == MixVariant::punchy ? -10.0 : -12.0;
+    plan.masterProcessing.compressor.ratio = variant == MixVariant::punchy ? 1.8 : 1.5;
     plan.masterProcessing.compressor.attackMs = 30.0;
     plan.masterProcessing.compressor.releaseMs = 120.0;
-    plan.masterProcessing.saturation = 0.04;
+    plan.masterProcessing.saturation = variant == MixVariant::punchy ? 0.07 : 0.04;
     plan.masterProcessing.clipCeilingDb = -1.0;
+
+    addSuggestion(
+        plan,
+        SuggestionKind::tone,
+        {},
+        "Variant: " + plan.variantLabel,
+        variant == MixVariant::balanced
+            ? "Balanced keeps conservative density and clear hierarchy."
+            : variant == MixVariant::punchy
+                ? "Punchy favors kick/snare/bass attack with slightly denser master glue."
+                : "Vocal-forward lifts lead vocal presence and carves rhythm/synth midrange.",
+        0.9);
 
     if (reference) {
         const auto lowDifference =
@@ -304,16 +345,18 @@ MixPlan MixAdvisor::createPlan(
             "The reference changes only the direction of the broad master contour. "
             "Correction is capped at 1.5 dB and must be judged with loudness-matched A/B.",
             0.72);
+        std::ostringstream loudnessNote;
+        loudnessNote << "Approximate stem-average loudness is "
+                     << formatRounded(mixLufs)
+                     << " LUFS versus reference "
+                     << formatRounded(reference->integratedLufs)
+                     << " LUFS. Use Reference A/B with automatic level matching.";
         addSuggestion(
             plan,
             SuggestionKind::qualityControl,
             {},
             "Match loudness before judging the reference",
-            "Approximate stem-average loudness is "
-                + std::to_string(mixLufs)
-                + " LUFS versus reference "
-                + std::to_string(reference->integratedLufs)
-                + " LUFS. Level-match before deciding tonal changes.",
+            loudnessNote.str(),
             0.8);
         if (reference->crestFactorDb + 2.0 < 6.0) {
             addSuggestion(
@@ -330,6 +373,17 @@ MixPlan MixAdvisor::createPlan(
     return plan;
 }
 
+std::vector<MixPlan> MixAdvisor::createVariants(
+    const project::ProjectDocument& project,
+    const std::optional<analysis::AudioMetrics>& reference) const
+{
+    return {
+        createPlan(project, reference, MixVariant::balanced),
+        createPlan(project, reference, MixVariant::punchy),
+        createPlan(project, reference, MixVariant::vocalForward)
+    };
+}
+
 std::string suggestionKindToString(SuggestionKind kind)
 {
     switch (kind) {
@@ -343,9 +397,31 @@ std::string suggestionKindToString(SuggestionKind kind)
     return "quality-control";
 }
 
+std::string mixVariantToString(MixVariant variant)
+{
+    switch (variant) {
+    case MixVariant::balanced: return "balanced";
+    case MixVariant::punchy: return "punchy";
+    case MixVariant::vocalForward: return "vocal-forward";
+    }
+    return "balanced";
+}
+
+std::optional<MixVariant> mixVariantFromString(std::string_view value)
+{
+    if (value == "balanced")
+        return MixVariant::balanced;
+    if (value == "punchy")
+        return MixVariant::punchy;
+    if (value == "vocal-forward")
+        return MixVariant::vocalForward;
+    return std::nullopt;
+}
+
 std::string toJson(const MixPlan& plan)
 {
     nlohmann::json value {
+        {"variant", plan.variantLabel},
         {"suggestions", nlohmann::json::array()},
         {"trackAdjustments", nlohmann::json::array()}
     };
@@ -367,6 +443,14 @@ std::string toJson(const MixPlan& plan)
             {"saturation", adjustment.processing.saturation}
         });
     }
+    return value.dump();
+}
+
+std::string toJson(const std::vector<MixPlan>& plans)
+{
+    nlohmann::json value = nlohmann::json::array();
+    for (const auto& plan : plans)
+        value.push_back(nlohmann::json::parse(toJson(plan)));
     return value.dump();
 }
 

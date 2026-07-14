@@ -10,6 +10,11 @@ function formatTime(seconds: number) {
 }
 
 export function MixerView({ state }: { state: SuiteState }) {
+  const variants = state.variants?.length
+    ? state.variants
+    : ["balanced", "punchy", "vocal-forward"];
+  const monitoringReference = state.monitorSource === "reference";
+
   return (
     <main className="desktop-layout">
       <aside className="sidebar">
@@ -50,10 +55,16 @@ export function MixerView({ state }: { state: SuiteState }) {
               Save
             </button>
             <button
-              className="button button--primary"
-              onClick={() => sendCommand({ type: "export-master" })}
+              className="button"
+              onClick={() => sendCommand({ type: "export-master", bitsPerSample: 24 })}
             >
-              Export master
+              Export 24-bit
+            </button>
+            <button
+              className="button button--primary"
+              onClick={() => sendCommand({ type: "export-master", bitsPerSample: 32 })}
+            >
+              Export 32f
             </button>
           </div>
         </header>
@@ -79,10 +90,18 @@ export function MixerView({ state }: { state: SuiteState }) {
             />
           </div>
           <span>{formatTime(state.durationSeconds)}</span>
-          <div className="transport__meter">
-            <span />
-            <span />
-          </div>
+          <button
+            className={monitoringReference ? "button button--primary" : "button"}
+            disabled={!state.hasReference}
+            onClick={() => sendCommand({ type: "toggle-ab" })}
+            title={
+              state.hasReference
+                ? `Loudness-matched A/B (${(state.referenceGainDb ?? 0).toFixed(1)} dB)`
+                : "Import a reference first"
+            }
+          >
+            {monitoringReference ? "REF" : "MIX"}
+          </button>
         </div>
 
         <div className="content-grid">
@@ -108,7 +127,7 @@ export function MixerView({ state }: { state: SuiteState }) {
                 </button>
               ) : (
                 state.tracks.map((track) => (
-                  <article className="track-row" key={track.id}>
+                  <article className="track-row track-row--extended" key={track.id}>
                     <span className={`role role--${track.role}`}>{track.role.slice(0, 2)}</span>
                     <div className="track-row__identity">
                       <strong>{track.name}</strong>
@@ -134,14 +153,6 @@ export function MixerView({ state }: { state: SuiteState }) {
                         <option value="effects">effects</option>
                       </select>
                     </div>
-                    <div className="waveform" aria-hidden="true">
-                      {Array.from({ length: 36 }).map((_, index) => (
-                        <span
-                          key={index}
-                          style={{ height: `${18 + ((index * 17) % 54)}%` }}
-                        />
-                      ))}
-                    </div>
                     <label className="compact-control">
                       <span>Gain {track.gainDb.toFixed(1)} dB</span>
                       <input
@@ -159,6 +170,35 @@ export function MixerView({ state }: { state: SuiteState }) {
                         }
                       />
                     </label>
+                    <label className="compact-control">
+                      <span>Pan {track.pan.toFixed(2)}</span>
+                      <input
+                        type="range"
+                        min="-1"
+                        max="1"
+                        step="0.01"
+                        value={track.pan}
+                        onChange={(event) =>
+                          sendCommand({
+                            type: "set-track-pan",
+                            trackId: track.id,
+                            value: Number(event.target.value),
+                          })
+                        }
+                      />
+                    </label>
+                    <button
+                      className={track.polarityInverted ? "toggle toggle--active" : "toggle"}
+                      onClick={() =>
+                        sendCommand({
+                          type: "toggle-track",
+                          trackId: track.id,
+                          field: "polarityInverted",
+                        })
+                      }
+                    >
+                      Ø
+                    </button>
                     <button
                       className={track.muted ? "toggle toggle--active" : "toggle"}
                       onClick={() =>
@@ -196,6 +236,22 @@ export function MixerView({ state }: { state: SuiteState }) {
               Analyze mix
             </button>
 
+            <div className="variant-row">
+              {variants.map((variant) => (
+                <button
+                  key={variant}
+                  className={
+                    state.selectedVariant === variant
+                      ? "button button--primary"
+                      : "button"
+                  }
+                  onClick={() => sendCommand({ type: "select-variant", variant })}
+                >
+                  {variant}
+                </button>
+              ))}
+            </div>
+
             <div className="suggestion-list">
               {state.suggestions.map((suggestion) => (
                 <article className="suggestion" key={`${suggestion.trackId}-${suggestion.title}`}>
@@ -214,7 +270,7 @@ export function MixerView({ state }: { state: SuiteState }) {
                 className="button button--wide"
                 onClick={() => sendCommand({ type: "apply-mix-plan" })}
               >
-                Apply at 65% amount
+                Apply selected variant
               </button>
             )}
           </aside>

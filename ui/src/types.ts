@@ -33,6 +33,7 @@ export interface Track {
   pan: number;
   muted: boolean;
   soloed: boolean;
+  polarityInverted?: boolean;
   metrics: AudioMetrics;
 }
 
@@ -56,6 +57,12 @@ export interface SuiteState {
   suggestions: Suggestion[];
   analyzerMetrics?: AudioMetrics;
   analyzerRole?: TrackRole;
+  monitorSource?: "mix" | "reference";
+  hasReference?: boolean;
+  referenceGainDb?: number;
+  selectedVariant?: string;
+  variants?: string[];
+  exportBitDepth?: number;
 }
 
 export const emptyMetrics: AudioMetrics = {

@@ -108,12 +108,31 @@ void MainComponent::handleCommand(const juce::var& command)
         chooseReference();
     } else if (type == "toggle-playback") {
         engine_.togglePlayback();
+    } else if (type == "toggle-ab") {
+        engine_.setMonitorSource(
+            engine_.monitorSource() == StemEngine::MonitorSource::mix
+                ? StemEngine::MonitorSource::reference
+                : StemEngine::MonitorSource::mix);
+    } else if (type == "set-monitor") {
+        const auto source = object->getProperty("source").toString();
+        engine_.setMonitorSource(
+            source == "reference"
+                ? StemEngine::MonitorSource::reference
+                : StemEngine::MonitorSource::mix);
     } else if (type == "generate-mix-plan") {
         generateMixPlan();
+    } else if (type == "select-variant") {
+        selectVariant(object->getProperty("variant").toString());
     } else if (type == "apply-mix-plan") {
         applyMixPlan();
     } else if (type == "export-master") {
-        chooseMasterDestination();
+        exportBitDepth_ = juce::jlimit(
+            24,
+            32,
+            static_cast<int>(object->getProperty("bitsPerSample")));
+        if (exportBitDepth_ != 24 && exportBitDepth_ != 32)
+            exportBitDepth_ = 24;
+        chooseMasterDestination(exportBitDepth_);
     } else if (type == "set-role") {
         if (auto* track = findTrack(object->getProperty("trackId").toString())) {
             if (const auto role = project::roleFromString(
@@ -130,6 +149,14 @@ void MainComponent::handleCommand(const juce::var& command)
                 static_cast<double>(object->getProperty("value")));
             engine_.updateTrack(*track);
         }
+    } else if (type == "set-track-pan") {
+        if (auto* track = findTrack(object->getProperty("trackId").toString())) {
+            track->pan = juce::jlimit(
+                -1.0,
+                1.0,
+                static_cast<double>(object->getProperty("value")));
+            engine_.updateTrack(*track);
+        }
     } else if (type == "toggle-track") {
         if (auto* track = findTrack(object->getProperty("trackId").toString())) {
             const auto field = object->getProperty("field").toString();
@@ -137,6 +164,8 @@ void MainComponent::handleCommand(const juce::var& command)
                 track->muted = !track->muted;
             if (field == "soloed")
                 track->soloed = !track->soloed;
+            if (field == "polarityInverted")
+                track->polarityInverted = !track->polarityInverted;
             engine_.updateTrack(*track);
         }
     }
@@ -193,11 +222,14 @@ void MainComponent::handleBridgeAnalysis(const juce::var& report)
 void MainComponent::createProject()
 {
     engine_.stop();
+    engine_.clearReference();
     project_ = {};
     project_.id = project::makeProjectId();
     project_.name = "Untitled Mix";
     projectFile_ = juce::File();
     currentPlan_ = {};
+    planVariants_.clear();
+    selectedVariant_ = assistant::MixVariant::balanced;
     referenceMetrics_.reset();
     engine_.loadProject(project_);
     pushState();
@@ -247,33 +279,64 @@ void MainComponent::chooseReference()
         [safeThis](const juce::FileChooser& chooser) {
             if (safeThis == nullptr || !chooser.getResult().existsAsFile())
                 return;
+            juce::String error;
+            if (!safeThis->engine_.loadReference(chooser.getResult(), error)) {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon,
+                    "Reference failed",
+                    error);
+                return;
+            }
             safeThis->project_.referencePath =
                 chooser.getResult().getFullPathName().toStdString();
-            safeThis->referenceMetrics_ = safeThis->analyzeReference(chooser.getResult());
+            juce::AudioFormatManager manager;
+            manager.registerBasicFormats();
+            if (auto reader = std::unique_ptr<juce::AudioFormatReader>(
+                    manager.createReaderFor(chooser.getResult()))) {
+                const auto frameCount = static_cast<int>(std::min<double>(
+                    reader->lengthInSamples,
+                    reader->sampleRate * 15.0 * 60.0));
+                const auto channels = juce::jlimit(1, 2, static_cast<int>(reader->numChannels));
+                juce::AudioBuffer<float> buffer(channels, frameCount);
+                reader->read(&buffer, 0, frameCount, 0, true, channels > 1);
+                std::vector<std::vector<float>> samples(
+                    static_cast<std::size_t>(channels),
+                    std::vector<float>(static_cast<std::size_t>(frameCount)));
+                for (int channel = 0; channel < channels; ++channel) {
+                    std::copy_n(
+                        buffer.getReadPointer(channel),
+                        frameCount,
+                        samples[static_cast<std::size_t>(channel)].begin());
+                }
+                safeThis->referenceMetrics_ =
+                    analysis::AudioAnalyzer {}.analyze(samples, reader->sampleRate);
+            }
             safeThis->pushState();
         });
 }
 
-void MainComponent::chooseMasterDestination()
+void MainComponent::chooseMasterDestination(int bitsPerSample)
 {
     fileChooser_ = std::make_unique<juce::FileChooser>(
         "Export mastered WAV",
         juce::File::getSpecialLocation(juce::File::userMusicDirectory)
-            .getChildFile(juce::String(project_.name) + " - MASTER.wav"),
+            .getChildFile(
+                juce::String(project_.name)
+                + (bitsPerSample == 32 ? " - MASTER-32f.wav" : " - MASTER-24.wav")),
         "*.wav");
     juce::Component::SafePointer<MainComponent> safeThis(this);
     fileChooser_->launchAsync(
         juce::FileBrowserComponent::saveMode
             | juce::FileBrowserComponent::canSelectFiles
             | juce::FileBrowserComponent::warnAboutOverwriting,
-        [safeThis](const juce::FileChooser& chooser) {
+        [safeThis, bitsPerSample](const juce::FileChooser& chooser) {
             if (safeThis == nullptr || chooser.getResult().getFullPathName().isEmpty())
                 return;
             juce::String error;
             if (!safeThis->engine_.renderMaster(
                     safeThis->project_,
                     chooser.getResult().withFileExtension("wav"),
-                    24,
+                    bitsPerSample,
                     error)) {
                 juce::AlertWindow::showMessageBoxAsync(
                     juce::MessageBoxIconType::WarningIcon,
@@ -294,6 +357,7 @@ void MainComponent::importStems(const juce::Array<juce::File>& files)
             project_.name = files.getFirst().getParentDirectory().getFileName().toStdString();
     }
     currentPlan_ = {};
+    planVariants_.clear();
     pushState();
 }
 
@@ -333,22 +397,67 @@ void MainComponent::openProject(const juce::File& file)
     }
     project_ = *restored;
     projectFile_ = file;
-    referenceMetrics_ = project_.referencePath.empty()
-        ? std::nullopt
-        : analyzeReference(juce::File(project_.referencePath));
     currentPlan_ = {};
+    planVariants_.clear();
     engine_.loadProject(project_);
+    if (!project_.referencePath.empty()) {
+        juce::String error;
+        if (engine_.loadReference(juce::File(project_.referencePath), error)) {
+            juce::AudioFormatManager manager;
+            manager.registerBasicFormats();
+            if (auto reader = std::unique_ptr<juce::AudioFormatReader>(
+                    manager.createReaderFor(juce::File(project_.referencePath)))) {
+                const auto frameCount = static_cast<int>(std::min<double>(
+                    reader->lengthInSamples,
+                    reader->sampleRate * 15.0 * 60.0));
+                const auto channels = juce::jlimit(1, 2, static_cast<int>(reader->numChannels));
+                juce::AudioBuffer<float> buffer(channels, frameCount);
+                reader->read(&buffer, 0, frameCount, 0, true, channels > 1);
+                std::vector<std::vector<float>> samples(
+                    static_cast<std::size_t>(channels),
+                    std::vector<float>(static_cast<std::size_t>(frameCount)));
+                for (int channel = 0; channel < channels; ++channel) {
+                    std::copy_n(
+                        buffer.getReadPointer(channel),
+                        frameCount,
+                        samples[static_cast<std::size_t>(channel)].begin());
+                }
+                referenceMetrics_ =
+                    analysis::AudioAnalyzer {}.analyze(samples, reader->sampleRate);
+            }
+        } else {
+            referenceMetrics_.reset();
+        }
+    } else {
+        engine_.clearReference();
+        referenceMetrics_.reset();
+    }
     pushState();
 }
 
 void MainComponent::generateMixPlan()
 {
-    currentPlan_ = advisor_.createPlan(project_, referenceMetrics_);
-    pushState();
+    planVariants_ = advisor_.createVariants(project_, referenceMetrics_);
+    selectVariant(assistant::mixVariantToString(selectedVariant_));
+}
+
+void MainComponent::selectVariant(const juce::String& variant)
+{
+    if (const auto parsed = assistant::mixVariantFromString(variant.toStdString()))
+        selectedVariant_ = *parsed;
+    const auto match = std::ranges::find_if(planVariants_, [this](const auto& plan) {
+        return plan.variant == selectedVariant_;
+    });
+    if (match != planVariants_.end())
+        currentPlan_ = *match;
+    else if (!planVariants_.empty())
+        currentPlan_ = planVariants_.front();
 }
 
 void MainComponent::applyMixPlan()
 {
+    if (currentPlan_.trackAdjustments.empty() && planVariants_.empty())
+        generateMixPlan();
     engine_.applyPlan(currentPlan_);
     for (const auto& adjustment : currentPlan_.trackAdjustments) {
         const auto match = std::ranges::find_if(project_.tracks, [&adjustment](const auto& track) {
@@ -376,31 +485,23 @@ void MainComponent::pushState()
     object->setProperty("playing", engine_.isPlaying());
     object->setProperty("positionSeconds", engine_.positionSeconds());
     object->setProperty("durationSeconds", engine_.durationSeconds());
+    object->setProperty(
+        "monitorSource",
+        engine_.monitorSource() == StemEngine::MonitorSource::reference ? "reference" : "mix");
+    object->setProperty("hasReference", engine_.hasReference());
+    object->setProperty("referenceGainDb", engine_.referenceGainDb());
+    object->setProperty("selectedVariant", juce::String(assistant::mixVariantToString(selectedVariant_)));
+    object->setProperty("exportBitDepth", exportBitDepth_);
     const auto planState = juce::JSON::parse(juce::String(assistant::toJson(currentPlan_)));
-    if (const auto* planObject = planState.getDynamicObject())
+    if (const auto* planObject = planState.getDynamicObject()) {
         object->setProperty("suggestions", planObject->getProperty("suggestions"));
+        object->setProperty("variantLabel", planObject->getProperty("variant"));
+    }
+    juce::Array<juce::var> variants;
+    for (const auto& plan : planVariants_)
+        variants.add(juce::String(assistant::mixVariantToString(plan.variant)));
+    object->setProperty("variants", variants);
     webView_.pushState(state);
-}
-
-std::optional<analysis::AudioMetrics> MainComponent::analyzeReference(
-    const juce::File& file) const
-{
-    juce::AudioFormatManager manager;
-    manager.registerBasicFormats();
-    auto reader = std::unique_ptr<juce::AudioFormatReader>(manager.createReaderFor(file));
-    if (reader == nullptr)
-        return std::nullopt;
-    const auto frameCount = static_cast<int>(
-        std::min<double>(reader->lengthInSamples, reader->sampleRate * 15.0 * 60.0));
-    const auto channels = juce::jlimit(1, 2, static_cast<int>(reader->numChannels));
-    juce::AudioBuffer<float> buffer(channels, frameCount);
-    reader->read(&buffer, 0, frameCount, 0, true, channels > 1);
-    std::vector<std::vector<float>> samples(
-        static_cast<std::size_t>(channels),
-        std::vector<float>(static_cast<std::size_t>(frameCount)));
-    for (int channel = 0; channel < channels; ++channel)
-        std::copy_n(buffer.getReadPointer(channel), frameCount, samples[channel].begin());
-    return analysis::AudioAnalyzer {}.analyze(samples, reader->sampleRate);
 }
 
 project::TrackRecord* MainComponent::findTrack(const juce::String& id)
