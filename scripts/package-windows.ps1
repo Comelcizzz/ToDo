@@ -26,8 +26,17 @@ New-Item -ItemType Directory -Force -Path (Join-Path $stage "docs") | Out-Null
 Copy-Item $suite $stage
 Copy-Item -Recurse $vst3 (Join-Path $stage "VST3")
 Copy-Item README.md (Join-Path $stage "README.txt")
+if (Test-Path LICENSE) {
+    Copy-Item LICENSE (Join-Path $stage "LICENSE.txt")
+}
 Copy-Item docs/FL_STUDIO_WORKFLOW.md (Join-Path $stage "docs")
 Copy-Item docs/PACKAGING.md (Join-Path $stage "docs")
+if (Test-Path docs/FEATURE_STATUS.md) {
+    Copy-Item docs/FEATURE_STATUS.md (Join-Path $stage "docs")
+}
+if (Test-Path docs/ARCHITECTURE.md) {
+    Copy-Item docs/ARCHITECTURE.md (Join-Path $stage "docs")
+}
 
 $zip = Join-Path $OutDir "MasteringAudioSuite-windows-x64.zip"
 if (Test-Path $zip) {

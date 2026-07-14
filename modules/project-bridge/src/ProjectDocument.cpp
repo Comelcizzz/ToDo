@@ -274,12 +274,19 @@ std::string serialize(const ProjectDocument& project)
         });
     }
     for (const auto& action : project.actions) {
-        value["actions"].push_back({
+        json actionJson {
             {"actionId", action.actionId},
             {"trackId", action.trackId},
             {"targetGainDb", action.targetGainDb},
-            {"state", action.state}
-        });
+            {"state", action.state},
+            {"processing", processingToJson(action.processing)},
+            {"hasPrevious", action.hasPrevious}
+        };
+        if (action.hasPrevious) {
+            actionJson["previousGainDb"] = action.previousGainDb;
+            actionJson["previousProcessing"] = processingToJson(action.previousProcessing);
+        }
+        value["actions"].push_back(std::move(actionJson));
     }
     return value.dump(2);
 }
@@ -356,6 +363,16 @@ std::optional<ProjectDocument> deserialize(std::string_view source, DeserializeE
                 read(actionValue, "trackId", action.trackId);
                 read(actionValue, "targetGainDb", action.targetGainDb);
                 read(actionValue, "state", action.state);
+                read(actionValue, "hasPrevious", action.hasPrevious);
+                read(actionValue, "previousGainDb", action.previousGainDb);
+                if (const auto processing = actionValue.find("processing");
+                    processing != actionValue.end()) {
+                    readProcessing(*processing, action.processing);
+                }
+                if (const auto previous = actionValue.find("previousProcessing");
+                    previous != actionValue.end()) {
+                    readProcessing(*previous, action.previousProcessing);
+                }
                 project.actions.push_back(std::move(action));
             }
         }

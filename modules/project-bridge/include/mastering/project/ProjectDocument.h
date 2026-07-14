@@ -50,6 +50,11 @@ struct AppliedAction {
     std::string trackId;
     double targetGainDb {0.0};
     std::string state {"pending"};
+    // Absolute processor snapshot applied with this action (empty defaults if older files).
+    dsp::ProcessorSettings processing;
+    double previousGainDb {0.0};
+    dsp::ProcessorSettings previousProcessing;
+    bool hasPrevious {false};
 };
 
 struct ProjectDocument {

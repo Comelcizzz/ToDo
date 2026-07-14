@@ -37,13 +37,21 @@ struct Suggestion {
     double confidence {0.0};
 };
 
-// Absolute gain target — Apply sets gainDb = targetGainDb (never +=).
+// Absolute Action targets — Apply assigns exact values (never += / never accumulate).
+// Reject semantics (Milestone 0 contract):
+// - Reject is valid only while state == pending.
+// - Reject after Apply does NOT revert DSP; applied state stays applied.
+// - Revert requires a future Undo command that restores captured previous values.
 struct TrackAdjustment {
     std::string actionId;
     std::string trackId;
     double targetGainDb {0.0};
     dsp::ProcessorSettings processing;
     ActionState state {ActionState::pending};
+    // Captured on successful Apply for future Undo (not used by Reject).
+    double previousGainDb {0.0};
+    dsp::ProcessorSettings previousProcessing;
+    bool hasPrevious {false};
 };
 
 struct MixPlan {
@@ -65,8 +73,10 @@ public:
         const project::ProjectDocument& project,
         const std::optional<analysis::AudioMetrics>& reference = std::nullopt) const;
 
-    // Sets absolute targets; safe to call repeatedly.
+    // Sets absolute targets; safe to call repeatedly (idempotent).
+    // Unknown track IDs are skipped. Duplicate action IDs apply in order (last wins).
     static void applyPlanToProject(project::ProjectDocument& project, MixPlan& plan);
+    // Marks pending actions rejected only; never reverts applied DSP.
     static void rejectPlan(MixPlan& plan) noexcept;
 
 private:

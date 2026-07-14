@@ -203,13 +203,13 @@ MixPlan MixAdvisor::createPlan(
             -9.0,
             9.0);
         const auto targetGain = track.gainDb + gainDelta;
-        plan.trackAdjustments.push_back({
-            project::makeProjectId(),
-            track.id,
-            targetGain,
-            settings,
-            ActionState::pending
-        });
+        TrackAdjustment adjustment;
+        adjustment.actionId = project::makeProjectId();
+        adjustment.trackId = track.id;
+        adjustment.targetGainDb = targetGain;
+        adjustment.processing = settings;
+        adjustment.state = ActionState::pending;
+        plan.trackAdjustments.push_back(std::move(adjustment));
 
         if (std::abs(gainDelta) > 1.0) {
             addSuggestion(
@@ -400,8 +400,13 @@ void MixAdvisor::applyPlanToProject(project::ProjectDocument& project, MixPlan& 
             return track.id == adjustment.trackId;
         });
         if (match == project.tracks.end())
-            continue;
-        // Absolute assignment — repeated Apply is a no-op when already at target.
+            continue; // unknown target ID — skip
+        if (!adjustment.hasPrevious) {
+            adjustment.previousGainDb = match->gainDb;
+            adjustment.previousProcessing = match->processing;
+            adjustment.hasPrevious = true;
+        }
+        // Absolute assignment — never accumulate deltas.
         match->gainDb = adjustment.targetGainDb;
         match->processing = adjustment.processing;
         adjustment.state = ActionState::applied;
@@ -414,15 +419,22 @@ void MixAdvisor::applyPlanToProject(project::ProjectDocument& project, MixPlan& 
             adjustment.actionId,
             adjustment.trackId,
             adjustment.targetGainDb,
-            actionStateToString(adjustment.state)
+            actionStateToString(adjustment.state),
+            adjustment.processing,
+            adjustment.previousGainDb,
+            adjustment.previousProcessing,
+            adjustment.hasPrevious
         });
     }
 }
 
 void MixAdvisor::rejectPlan(MixPlan& plan) noexcept
 {
-    for (auto& adjustment : plan.trackAdjustments)
-        adjustment.state = ActionState::rejected;
+    // Reject-before-Apply only. Already-applied actions keep DSP + applied state.
+    for (auto& adjustment : plan.trackAdjustments) {
+        if (adjustment.state == ActionState::pending)
+            adjustment.state = ActionState::rejected;
+    }
 }
 
 std::string suggestionKindToString(SuggestionKind kind)

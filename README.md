@@ -13,10 +13,13 @@ Everything runs offline. No accounts, no cloud upload.
 
 - The Analyzer realtime UI shows **Estimated Loudness** (RMS-derived) and **Sample Peak**.
   It does **not** currently publish realtime LUFS or true-peak values.
+- For **finite** audio, Analyzer processing is bit-transparent (sample-for-sample). NaN/Inf are sanitized to 0.
+  See `[milestone0][bit-transparency]` tests — do not claim transparency without that evidence.
 - Offline analysis can compute an integrated LUFS approximation and an estimated true-peak value;
   both are explicitly flagged in serialized metrics.
+- MixAdvisor **Apply** sets absolute Action targets (idempotent). **Reject** is pending-only; it does not undo an Apply.
 - The current limiter is **not** a fully oversampled true-peak limiter yet (see `docs/FEATURE_STATUS.md`).
-- ML tools under `ml/` are a research pipeline, not an in-app auto-mix brain.
+- Portable ZIP packaging is **not** an installer. ML under `ml/` is a research CLI, not an ML Lab GUI.
 
 ## Products
 

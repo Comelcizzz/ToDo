@@ -1,5 +1,6 @@
 #include "analyzer-plugin/PluginProcessor.h"
 #include "analyzer-plugin/PluginEditor.h"
+#include "mastering/analysis/PassThroughPolicy.h"
 #include "mastering/ipc/BridgeProtocol.h"
 
 #include <array>
@@ -86,13 +87,11 @@ void AnalyzerProcessor::processBlock(
     juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
-    for (int channel = 0; channel < buffer.getNumChannels(); ++channel) {
-        auto* samples = buffer.getWritePointer(channel);
-        for (int sample = 0; sample < buffer.getNumSamples(); ++sample) {
-            if (!std::isfinite(samples[sample]))
-                samples[sample] = 0.0f;
-        }
-    }
+    // Finite audio is bit-transparent; only NaN/Inf are zeroed (see PassThroughPolicy).
+    analysis::applyAnalyzerSanitizeOnly(
+        buffer.getArrayOfWritePointers(),
+        buffer.getNumChannels(),
+        buffer.getNumSamples());
     meter_.process(
         buffer.getArrayOfReadPointers(),
         buffer.getNumChannels(),
@@ -106,15 +105,16 @@ void AnalyzerProcessor::processBlock(
     juce::ScopedNoDenormals noDenormals;
     const auto channels = buffer.getNumChannels();
     const auto samples = buffer.getNumSamples();
+    analysis::applyAnalyzerSanitizeOnly(
+        buffer.getArrayOfWritePointers(),
+        channels,
+        samples);
     floatMeterScratch_.setSize(std::max(1, channels), std::max(1, samples), false, false, true);
     for (int channel = 0; channel < channels; ++channel) {
-        auto* source = buffer.getWritePointer(channel);
+        const auto* source = buffer.getReadPointer(channel);
         auto* destination = floatMeterScratch_.getWritePointer(channel);
-        for (int sample = 0; sample < samples; ++sample) {
-            if (!std::isfinite(source[sample]))
-                source[sample] = 0.0;
+        for (int sample = 0; sample < samples; ++sample)
             destination[sample] = static_cast<float>(source[sample]);
-        }
     }
     meter_.process(
         floatMeterScratch_.getArrayOfReadPointers(),
