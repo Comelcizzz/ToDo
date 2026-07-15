@@ -6,7 +6,7 @@
 |---|---|
 | Branch | `cursor/mastering-audio-932f` |
 | PR | https://github.com/Comelcizzz/ToDo/pull/1 |
-| SHA | *(filled after push)* |
+| SHA | `68f338bfd881dfe6f2e3389ea1b8d925470ec3ee` |
 
 ## B. Architecture
 
