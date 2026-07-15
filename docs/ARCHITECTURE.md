@@ -17,7 +17,7 @@ Mastering Audio Suite is a personal local Windows metalcore mixing ecosystem.
 ## Shared core
 
 - `modules/audio-analysis` — offline analysis + realtime meter + `PassThroughPolicy`
-- `modules/dsp` — ProcessorChain (EQ/comp) + Master Safety Chain (oversampled sat/clip/TP limiter) + ExportQc
+- `modules/dsp` — ProcessorChain (EQ/comp) + Master Safety Chain + Dynamic EQ / FD sidechain + ExportQc
 - `modules/assistant` — MixAdvisor with absolute Action targets
 - `modules/project-bridge` — `.masuite` schema v2
 - `modules/ipc` — bridge payload validation
@@ -57,7 +57,7 @@ Evidence: `[milestone0][bit-transparency]` tests in `tests/Milestone0RegressionT
 → FL hierarchy / Mix Pass / full Mix Node / polished UI / ML Lab GUI
 ```
 
-Gates: M1A accepted; **M1B accepted** (`docs/M1B_EVIDENCE_REPORT.md`). Do not start 1C until explicit confirmation after M1B evidence.
+Gates: M1A accepted; M1B accepted; **M1C accepted** (`docs/M1C_EVIDENCE_REPORT.md`). Do not start Mix Node / Metalcore Mix Pass / installer / ML Lab without explicit confirmation.
 
 ## Host latency model (Milestone 1B+)
 

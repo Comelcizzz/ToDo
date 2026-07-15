@@ -28,6 +28,8 @@ add_library(mastering_audio_core STATIC
     modules/dsp/src/NonlinearProcessors.cpp
     modules/dsp/src/MasterSafetyChain.cpp
     modules/dsp/src/ExportQc.cpp
+    modules/dsp/src/EnvelopeDetector.cpp
+    modules/dsp/src/DynamicEq.cpp
     modules/assistant/src/MixAdvisor.cpp
     modules/project-bridge/src/ProjectDocument.cpp
     modules/research-export/src/ResearchExample.cpp
@@ -81,6 +83,7 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tests/MasterSafetyDspTests.cpp
         tests/TruePeakLimiterM1BTests.cpp
         tests/M1BVerificationTests.cpp
+        tests/DynamicEqTests.cpp
     )
     target_link_libraries(mastering_audio_tests
         PRIVATE
@@ -92,6 +95,11 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tools/dsp-validation-render/main.cpp
     )
     target_link_libraries(dsp_validation_render PRIVATE mastering_audio_core)
+
+    add_executable(dynamic_processing_validation
+        tools/dynamic-processing-validation/main.cpp
+    )
+    target_link_libraries(dynamic_processing_validation PRIVATE mastering_audio_core)
 
     include(CTest)
     include(Catch)

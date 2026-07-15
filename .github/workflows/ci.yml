@@ -44,9 +44,11 @@ jobs:
           if [[ -d testdata/official/wav ]] && compgen -G "testdata/official/wav/*.wav" > /dev/null; then
             ./build/core/mastering_audio_tests "[official]" --reporter compact
           fi
-          mkdir -p artifacts/dsp_validation
+          mkdir -p artifacts/dsp_validation artifacts/dynamic_processing_validation
           ./build/core/dsp_validation_render artifacts/dsp_validation
+          ./build/core/dynamic_processing_validation artifacts/dynamic_processing_validation
           ./build/core/mastering_audio_tests "[milestone1b]" --reporter compact
+          ./build/core/mastering_audio_tests "[milestone1c]" --reporter compact
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -72,6 +74,20 @@ jobs:
           name: dsp-benchmark-summary
           path: |
             artifacts/dsp_validation/benchmark_smoke.md
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dynamic-processing-validation
+          path: |
+            artifacts/dynamic_processing_validation/**
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dynamic-processing-benchmark-summary
+          path: |
+            artifacts/dynamic_processing_validation/benchmark_smoke.md
           if-no-files-found: warn
 
   ml-research:
@@ -112,15 +128,21 @@ jobs:
         run: |
           cmake --build build --config Release --parallel
           ctest --test-dir build -C Release --output-on-failure
-          mkdir -p artifacts/dsp_validation
+          mkdir -p artifacts/dsp_validation artifacts/dynamic_processing_validation
           TOOL=$(find build -type f \( -name 'dsp_validation_render.exe' -o -name 'dsp_validation_render' \) | head -n 1)
           if [[ -z "$TOOL" ]]; then
             echo "dsp_validation_render not found" >&2
             exit 1
           fi
           "$TOOL" artifacts/dsp_validation
-          ./build/Release/mastering_audio_tests.exe "[milestone1b]" --reporter compact \
-            || ./build/mastering_audio_tests.exe "[milestone1b]" --reporter compact \
+          DYN=$(find build -type f \( -name 'dynamic_processing_validation.exe' -o -name 'dynamic_processing_validation' \) | head -n 1)
+          if [[ -z "$DYN" ]]; then
+            echo "dynamic_processing_validation not found" >&2
+            exit 1
+          fi
+          "$DYN" artifacts/dynamic_processing_validation
+          ./build/Release/mastering_audio_tests.exe "[milestone1c]" --reporter compact \
+            || ./build/mastering_audio_tests.exe "[milestone1c]" --reporter compact \
             || true
       - name: Package
         shell: pwsh
@@ -152,4 +174,18 @@ jobs:
           name: dsp-benchmark-summary-windows
           path: |
             artifacts/dsp_validation/benchmark_smoke.md
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dynamic-processing-validation-windows
+          path: |
+            artifacts/dynamic_processing_validation/**
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dynamic-processing-benchmark-summary-windows
+          path: |
+            artifacts/dynamic_processing_validation/benchmark_smoke.md
           if-no-files-found: warn
