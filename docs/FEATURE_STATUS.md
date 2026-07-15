@@ -38,6 +38,6 @@ Surround / 5.1 case Tech 3341-6: **SKIP / OUT OF SCOPE**.
 
 ## Gate
 
-Official vectors loaded + hashed; LUFS/LRA/TP PASS; FIR tail finalized; matrices + artifacts present; UI honest; Windows CI required for compliance commit.
+Official vectors loaded + hashed; LUFS/LRA/TP PASS; FIR tail finalized; matrices + artifacts present; UI honest; Windows CI green for compliance commit `b3dabc2`.
 
-**Overall M1A:** closable for mono/stereo metering when Windows CI is green for this compliance revision. Multichannel remains out of scope.
+**Overall M1A (mono/stereo): ACCEPTED.** Multichannel remains out of scope. Do not start Milestone 1B without explicit confirmation.
