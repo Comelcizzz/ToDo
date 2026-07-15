@@ -17,6 +17,8 @@
 
 #include <filesystem>
 #include <fstream>
+#include <optional>
+#include <string>
 
 using mastering::assistant::MetalcoreMixPass;
 using mastering::assistant::clampProfileToHardCaps;
@@ -415,10 +417,25 @@ TEST_CASE("M4A privacy: personal paths marked localOnly and gitignore pattern ex
     m.sessionId = "personal-1";
     m.localOnly = true;
     REQUIRE(m.localOnly);
-    std::ifstream gi(".gitignore");
+
+    auto dir = fs::current_path();
+    std::optional<fs::path> giPath;
+    for (int i = 0; i < 10; ++i) {
+        const auto candidate = dir / ".gitignore";
+        if (fs::exists(candidate)) {
+            giPath = candidate;
+            break;
+        }
+        if (!dir.has_parent_path() || dir == dir.parent_path())
+            break;
+        dir = dir.parent_path();
+    }
+    REQUIRE(giPath.has_value());
+    std::ifstream gi(*giPath);
     REQUIRE(gi);
     std::string content((std::istreambuf_iterator<char>(gi)), std::istreambuf_iterator<char>());
-    REQUIRE(content.find("benchmarks/personal/") != std::string::npos);
+    const bool hasPersonal = content.find("benchmarks/personal/") != std::string::npos;
+    REQUIRE(hasPersonal);
 }
 
 TEST_CASE("M4A Action graph diff detects amount change", "[milestone4a]")
@@ -435,11 +452,23 @@ TEST_CASE("M4A Action graph diff detects amount change", "[milestone4a]")
 
 TEST_CASE("M4A tracked profile JSON files deserialize", "[milestone4a]")
 {
+    auto dir = fs::current_path();
+    std::optional<fs::path> root;
+    for (int i = 0; i < 10; ++i) {
+        if (fs::exists(dir / "benchmarks/profiles/modern-metalcore-balanced.json")) {
+            root = dir;
+            break;
+        }
+        if (!dir.has_parent_path() || dir == dir.parent_path())
+            break;
+        dir = dir.parent_path();
+    }
+    REQUIRE(root.has_value());
     for (const char* name : {
              "benchmarks/profiles/modern-metalcore-balanced.json",
              "benchmarks/profiles/modern-metalcore-aggressive.json",
              "benchmarks/profiles/custom.json"}) {
-        std::ifstream in(name);
+        std::ifstream in(*root / name);
         REQUIRE(in);
         std::string json((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         std::string err;
