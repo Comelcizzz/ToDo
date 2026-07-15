@@ -54,8 +54,13 @@ public:
     }
 
     [[nodiscard]] int factor() const noexcept { return factor_; }
-    // End-to-end up+down group delay in base-rate samples (integer, ceil).
+    // End-to-end up+down group delay in base-rate samples (integer, rounded).
     [[nodiscard]] int latencySamplesBaseRate() const noexcept { return latencySamples_; }
+    // Continuous group delay minus reported integer (typically |residual| < 0.5).
+    [[nodiscard]] double fractionalLatencyResidual() const noexcept
+    {
+        return fractionalLatencyResidual_;
+    }
     [[nodiscard]] double sampleRate() const noexcept { return sampleRate_; }
     [[nodiscard]] int maximumBlockSize() const noexcept { return maximumBlockSize_; }
 
@@ -73,6 +78,7 @@ private:
     int channelCount_ {2};
     int maximumBlockSize_ {4096};
     int latencySamples_ {0};
+    double fractionalLatencyResidual_ {0.0};
 
     // coeffs_[phase][tap]
     std::array<std::array<double, kTapsPerPhase>, kMaxFactor> coeffs_ {};

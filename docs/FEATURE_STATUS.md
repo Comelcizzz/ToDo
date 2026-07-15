@@ -31,7 +31,7 @@ Surround / 5.1 case Tech 3341-6: **SKIP / OUT OF SCOPE**.
 | Oversampled saturation (tanh) | **IMPLEMENTED** | Static auto-gain optional; delay-aligned bypass |
 | Oversampled soft clipper | **IMPLEMENTED** | Soft knee; C¹ transfer |
 | Oversampled hard clipper | **IMPLEMENTED** | Clip in OS domain |
-| Look-ahead true-peak limiter | **IMPLEMENTED** | OS detect + LA; ceiling tol +0.15 dB |
+| Look-ahead true-peak limiter | **IMPLEMENTED** | OS LA envelope; two-sided ceiling; clamp activations=0 on matrix |
 | Latency reporting == impulse | **IMPLEMENTED** | Δ ≤ 2 samples in validation |
 | Timing-aligned bypass | **IMPLEMENTED** | Dry delay = wet latency + crossfade |
 | Parameter smoothing | **IMPLEMENTED** | One-pole ~15–20 ms |
@@ -44,7 +44,7 @@ Surround / 5.1 case Tech 3341-6: **SKIP / OUT OF SCOPE**.
 | Multiband limiter / Dynamic EQ | **MISSING** | Milestone 1C+ |
 | Mix Node VST3 | **MISSING** | Not started |
 | Auto-release heuristics | **MISSING** | Fixed release only |
-| ITU FIR inside limiter GR | **PARTIAL** | OS peak + ISP interpolants + −1 dB OS headroom clamp |
+| ITU FIR inside limiter GR | **PARTIAL** | OS look-ahead + ISP interpolants + documented 0.12 dB reconstruction guard; safety clamp counted |
 
 ## Supporting features
 
@@ -62,6 +62,6 @@ Surround / 5.1 case Tech 3341-6: **SKIP / OUT OF SCOPE**.
 ## Gate
 
 **M1A (mono/stereo): ACCEPTED.**  
-**M1B: ACCEPTED** — see `docs/M1B_EVIDENCE_REPORT.md`.
+**M1B: ACCEPTED** (verification hardened) — see `docs/M1B_VERIFICATION_REPORT.md` and `docs/M1B_EVIDENCE_REPORT.md`.
 
 Multichannel remains out of scope. Do not start Milestone 1C without explicit confirmation after the M1B evidence report.

@@ -28,10 +28,11 @@ float readDelay(
 {
     if (delayLength <= 0)
         return input;
-    const auto read = (write + 1) % static_cast<std::size_t>(delayLength);
-    const auto out = line[read];
+    // Size-D circular buffer: read oldest then overwrite → exact D-sample delay.
+    const auto len = static_cast<std::size_t>(delayLength);
+    const auto out = line[write];
     line[write] = input;
-    write = (write + 1) % static_cast<std::size_t>(delayLength);
+    write = (write + 1) % len;
     return out;
 }
 
@@ -66,17 +67,17 @@ void SaturationProcessor::reset() noexcept
 
 void SaturationProcessor::setSettings(const SaturationSettings& settings) noexcept
 {
-    settings_ = settings;
-    settings_.drive = std::max(1.0, settings_.drive);
-    settings_.mix = std::clamp(settings_.mix, 0.0, 1.0);
-    int factor = settings_.oversamplingFactor;
+    // Realtime-safe: continuous params only. OS factor changes require prepare().
+    settings_.bypass = settings.bypass;
+    settings_.drive = std::max(1.0, settings.drive);
+    settings_.mix = std::clamp(settings.mix, 0.0, 1.0);
+    settings_.outputTrimDb = settings.outputTrimDb;
+    settings_.mode = settings.mode;
+    settings_.autoGainStatic = settings.autoGainStatic;
+    int factor = settings.oversamplingFactor;
     if (factor != 1 && factor != 2 && factor != 4 && factor != 8)
-        factor = 4;
-    settings_.oversamplingFactor = factor;
-    if (factor != oversampler_.factor()) {
-        oversampler_.prepare(oversampler_.sampleRate(), oversampler_.maximumBlockSize(), channels_, factor);
-        ensureDelay(delayLine_, delayWrite_, delayLength_, channels_, oversampler_.latencySamplesBaseRate());
-    }
+        factor = oversampler_.factor();
+    settings_.oversamplingFactor = factor; // may differ from prepared until prepare()
     driveSm_.setTarget(settings_.drive);
     mixSm_.setTarget(settings_.mix);
     outSm_.setTarget(dbToGainSafe(settings_.outputTrimDb));
@@ -205,16 +206,16 @@ void SoftClipper::reset() noexcept
 
 void SoftClipper::setSettings(const SoftClipSettings& settings) noexcept
 {
-    settings_ = settings;
-    settings_.mix = std::clamp(settings_.mix, 0.0, 1.0);
-    int factor = settings_.oversamplingFactor;
+    settings_.bypass = settings.bypass;
+    settings_.thresholdDb = settings.thresholdDb;
+    settings_.kneeDb = settings.kneeDb;
+    settings_.driveDb = settings.driveDb;
+    settings_.mix = std::clamp(settings.mix, 0.0, 1.0);
+    settings_.outputTrimDb = settings.outputTrimDb;
+    int factor = settings.oversamplingFactor;
     if (factor != 1 && factor != 2 && factor != 4 && factor != 8)
-        factor = 4;
+        factor = oversampler_.factor();
     settings_.oversamplingFactor = factor;
-    if (factor != oversampler_.factor()) {
-        oversampler_.prepare(oversampler_.sampleRate(), oversampler_.maximumBlockSize(), channels_, factor);
-        ensureDelay(delayLine_, delayWrite_, delayLength_, channels_, oversampler_.latencySamplesBaseRate());
-    }
     threshSm_.setTarget(dbToGainSafe(settings_.thresholdDb));
     const auto thr = dbToGainSafe(settings_.thresholdDb);
     const auto kneeLin = thr * (1.0 - dbToGainSafe(-std::abs(settings_.kneeDb)));
@@ -312,15 +313,14 @@ void HardClipper::reset() noexcept
 
 void HardClipper::setSettings(const HardClipSettings& settings) noexcept
 {
-    settings_ = settings;
-    int factor = settings_.oversamplingFactor;
+    settings_.bypass = settings.bypass;
+    settings_.ceilingDb = settings.ceilingDb;
+    settings_.driveDb = settings.driveDb;
+    settings_.outputTrimDb = settings.outputTrimDb;
+    int factor = settings.oversamplingFactor;
     if (factor != 1 && factor != 2 && factor != 4 && factor != 8)
-        factor = 4;
+        factor = oversampler_.factor();
     settings_.oversamplingFactor = factor;
-    if (factor != oversampler_.factor()) {
-        oversampler_.prepare(oversampler_.sampleRate(), oversampler_.maximumBlockSize(), channels_, factor);
-        ensureDelay(delayLine_, delayWrite_, delayLength_, channels_, oversampler_.latencySamplesBaseRate());
-    }
     ceilSm_.setTarget(dbToGainSafe(settings_.ceilingDb));
     driveSm_.setTarget(dbToGainSafe(settings_.driveDb));
     outSm_.setTarget(dbToGainSafe(settings_.outputTrimDb));

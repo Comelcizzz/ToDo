@@ -61,7 +61,7 @@ TEST_CASE("Oversampler reported latency matches impulse peak", "[milestone1b][ov
         const auto measured = measureImpulseDelay(os, 1, factor);
         const auto reported = os.latencySamplesBaseRate();
         REQUIRE(measured >= 0);
-        CHECK(std::abs(measured - reported) <= 2);
+        CHECK(std::abs(measured - reported) <= 1);
     }
 }
 

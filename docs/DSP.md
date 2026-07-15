@@ -50,11 +50,24 @@ Classes: `MasterSafetyChain`, settings/meters in `MasterSafetyChain.h`.
 ### Latency formula
 
 ```text
-upDelayOs   = (prototypeLength - 1) / 2
-downDelayOs = (prototypeLength - 1) / 2
-hostLatencyBaseSamples = ceil( (upDelayOs + downDelayOs) / factor )
-                       = ceil( (prototypeLength - 1) / factor )
+M = kTapsPerPhase = 48          # taps per polyphase branch
+L = factor                      # 1, 2, 4, or 8
+N = L × M                       # full prototype FIR length
+
+upDelayBase   = (M - 1) / 2
+downDelayBase = (N - 1) / (2 × L)
+totalBase     = upDelayBase + downDelayBase
+reported      = round(totalBase)          # host integer samples
+fractionalResidual = totalBase - reported # |residual| < 0.5
 ```
+
+Numeric examples (measured impulse peak == reported):
+
+| L | N | totalBase | reported | residual |
+|--:|--:|---:|---:|---:|
+| 2 | 96 | 47.25 | 47 | 0.25 |
+| 4 | 192 | 47.375 | 47 | 0.375 |
+| 8 | 384 | 47.4375 | 47 | 0.4375 |
 
 Limiter host latency:
 
@@ -63,6 +76,22 @@ hostLatencyBaseSamples = oversamplerLatencyBase + lookAheadSamplesBase
 ```
 
 Do **not** report `lookAheadSamples × oversamplingFactor` as host latency.
+
+### Limiter architecture (post-hardening)
+
+```text
+input gain
+→ upsample
+→ OS look-ahead ring (detect predicted peak + delay audio)
+→ gain computer (instant attack / release envelope, stereo-linked)
+→ apply gain to delayed OS samples
+→ safety clamp at user ceiling (last resort; counted)
+→ downsample
+→ bypass mix with base-rate delayed dry
+→ finalize flush
+```
+
+Detector target uses a **documented 0.12 dB reconstruction guard** (FIR sidelobes / meter TP vs OS peak). This replaced the previous hidden −1 dB OS headroom.
 
 ## Parameter smoothing
 

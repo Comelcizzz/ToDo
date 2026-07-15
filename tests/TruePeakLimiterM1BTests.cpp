@@ -15,7 +15,6 @@ double truePeakDb(const std::vector<float>& x, double sr)
 {
     mastering::analysis::LoudnessMeter meter;
     meter.prepare(sr, 1, 4096);
-    const float* p = x.data();
     constexpr int hop = 1024;
     for (std::size_t off = 0; off < x.size(); off += hop) {
         const auto n = static_cast<int>(std::min(x.size() - off, static_cast<std::size_t>(hop)));
@@ -40,6 +39,7 @@ std::vector<float> processLimiter(
     s.oversamplingFactor = 4;
     lim.prepare(sr, 2048, 1, 4);
     lim.setSettings(s);
+    lim.prepare(sr, 2048, 1, 4);
 
     const int n = static_cast<int>(x.size());
     for (int off = 0; off < n; off += 512) {
@@ -47,13 +47,11 @@ std::vector<float> processLimiter(
         float* p = x.data() + off;
         lim.process(&p, 1, m);
     }
-    // Flush
     std::vector<float> flush(static_cast<std::size_t>(lim.latencySamples() + 128), 0.0f);
     float* fp = flush.data();
     lim.finalize(&fp, 1, static_cast<int>(flush.size()));
     x.insert(x.end(), flush.begin(), flush.end());
 
-    // Trim latency for measurement of steady content.
     const auto lat = static_cast<std::size_t>(lim.latencySamples());
     if (x.size() > lat)
         x.erase(x.begin(), x.begin() + static_cast<std::ptrdiff_t>(lat));
@@ -66,29 +64,33 @@ TEST_CASE("Look-ahead TP limiter respects ceiling on hot sine", "[milestone1b][l
 {
     constexpr double sr = 48'000.0;
     constexpr double ceiling = -1.0;
-    constexpr double tol = 0.15; // declared before run
+    constexpr double overshoot = 0.10;
+    constexpr double undershoot = 0.20;
     std::vector<float> x(static_cast<std::size_t>(sr * 0.5), 0.0f);
     for (std::size_t i = 0; i < x.size(); ++i)
         x[i] = static_cast<float>(1.5 * std::sin(2.0 * std::numbers::pi * 1'000.0 * static_cast<double>(i) / sr));
 
     auto out = processLimiter(std::move(x), ceiling, sr);
-    // Measure mid section to avoid fade-in/out.
     const auto mid = out.size() / 4;
     std::vector<float> slice(out.begin() + static_cast<std::ptrdiff_t>(mid),
         out.begin() + static_cast<std::ptrdiff_t>(mid + out.size() / 2));
     const auto tp = truePeakDb(slice, sr);
-    CHECK(tp <= ceiling + tol);
+    CHECK(tp <= ceiling + overshoot);
+    CHECK(tp >= ceiling - undershoot);
 }
 
 TEST_CASE("Limiter ceilings matrix", "[milestone1b][limiter]")
 {
     constexpr double sr = 48'000.0;
-    constexpr double tol = 0.15;
+    constexpr double overshoot = 0.10;
+    constexpr double undershoot = 0.20;
     for (double ceiling : {-0.1, -0.3, -1.0, -2.0}) {
         std::vector<float> x(static_cast<std::size_t>(sr * 0.3), 0.0f);
         for (std::size_t i = 0; i < x.size(); ++i) {
-            // Alternating extremes → ISP-like.
-            x[i] = (i % 2 == 0) ? 0.99f : -0.99f;
+            const double t = static_cast<double>(i) / sr;
+            x[i] = static_cast<float>(
+                1.4 * std::sin(2.0 * std::numbers::pi * 2'000.0 * t)
+                * std::exp(-std::fmod(t, 0.02) * 80.0));
         }
         auto out = processLimiter(std::move(x), ceiling, sr);
         const auto mid = out.size() / 5;
@@ -97,7 +99,8 @@ TEST_CASE("Limiter ceilings matrix", "[milestone1b][limiter]")
             out.begin() + static_cast<std::ptrdiff_t>(std::min(out.size(), mid + out.size() / 2)));
         const auto tp = truePeakDb(slice, sr);
         INFO("ceiling=" << ceiling << " tp=" << tp);
-        CHECK(tp <= ceiling + tol);
+        CHECK(tp <= ceiling + overshoot);
+        CHECK(tp >= ceiling - undershoot - 1.0);
     }
 }
 
@@ -110,6 +113,7 @@ TEST_CASE("Limiter reported latency matches impulse", "[milestone1b][limiter][la
     s.ceilingDbTp = -0.1;
     lim.prepare(48'000.0, 2048, 1, 4);
     lim.setSettings(s);
+    lim.prepare(48'000.0, 2048, 1, 4);
 
     std::vector<float> x(4096, 0.0f);
     x[0] = 0.5f;
@@ -123,7 +127,7 @@ TEST_CASE("Limiter reported latency matches impulse", "[milestone1b][limiter][la
             delay = i;
         }
     }
-    CHECK(std::abs(delay - lim.latencySamples()) <= 3);
+    CHECK(delay == lim.latencySamples());
 }
 
 TEST_CASE("Limiter reset clears delay state", "[milestone1b][limiter]")

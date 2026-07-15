@@ -14,6 +14,7 @@ void Oversampler::designKernels() noexcept
 {
     if (factor_ <= 1) {
         latencySamples_ = 0;
+        fractionalLatencyResidual_ = 0.0;
         return;
     }
 
@@ -67,10 +68,20 @@ void Oversampler::designKernels() noexcept
     for (int i = 0; i < prototypeLength; ++i)
         downPrototype_[static_cast<std::size_t>(i)] = prototype[static_cast<std::size_t>(i)];
 
-    // Up delay (N-1)/2 OS + down delay (N-1)/2 OS → (N-1)/L base samples.
-    const auto delayOs = 0.5 * static_cast<double>(prototypeLength - 1);
-    const auto totalBase = (2.0 * delayOs) / static_cast<double>(factor_);
-    latencySamples_ = static_cast<int>(std::ceil(totalBase - 1.0e-9));
+    // Round-trip group delay (base-rate samples):
+    //   N = full prototype length = factor * kTapsPerPhase
+    //   M = taps per phase = kTapsPerPhase
+    //   L = factor
+    //   upDelayBase   = (M - 1) / 2
+    //   downDelayBase = (N - 1) / (2 * L)
+    //   totalBase     = upDelayBase + downDelayBase
+    // Host reports nearest integer; fractional residual = totalBase - reported.
+    const double upBase = 0.5 * static_cast<double>(kTapsPerPhase - 1);
+    const double downBase =
+        0.5 * static_cast<double>(prototypeLength - 1) / static_cast<double>(factor_);
+    const double totalBase = upBase + downBase;
+    latencySamples_ = static_cast<int>(std::lround(totalBase));
+    fractionalLatencyResidual_ = totalBase - static_cast<double>(latencySamples_);
 }
 
 void Oversampler::prepare(

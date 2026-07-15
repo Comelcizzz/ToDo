@@ -80,6 +80,7 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tests/OversamplerTests.cpp
         tests/MasterSafetyDspTests.cpp
         tests/TruePeakLimiterM1BTests.cpp
+        tests/M1BVerificationTests.cpp
     )
     target_link_libraries(mastering_audio_tests
         PRIVATE

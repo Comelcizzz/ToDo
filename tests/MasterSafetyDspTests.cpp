@@ -143,6 +143,7 @@ TEST_CASE("Bypass timing: delayed dry when bypassed limiter", "[milestone1b][byp
     s.oversamplingFactor = 4;
     lim.prepare(48'000.0, 1024, 1, 4);
     lim.setSettings(s);
+    lim.prepare(48'000.0, 1024, 1, 4);
     auto x = makeSine(48'000.0, 0.05, 440.0, 0.5);
     auto dry = x;
     float* p = x.data();

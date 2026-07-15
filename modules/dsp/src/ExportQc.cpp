@@ -13,7 +13,8 @@ ExportQcReport ExportQc::analyse(
     const MasterSafetyMeters& meters,
     int latencyCompensationSamples,
     double configuredCeilingDbtp,
-    double ceilingToleranceDb)
+    double ceilingToleranceDb,
+    const StyleQcProfile* styleProfile)
 {
     ExportQcReport report;
     report.sampleRate = sampleRate;
@@ -24,18 +25,23 @@ ExportQcReport ExportQc::analyse(
     report.ceilingToleranceDb = ceilingToleranceDb;
     report.maxLimiterGrDb = meters.limiterMaxGrDb;
     report.avgLimiterGrDb = meters.limiterAvgGrDb;
+    report.safetyClampActivationCount = meters.safetyClampActivationCount;
 
     if (channels.empty() || sampleRate <= 0.0) {
+        report.technicalStatus = QcStatus::fail;
         report.status = QcStatus::fail;
-        report.summary = "unreadable output / empty buffer";
+        report.technicalSummary = "unreadable output / empty buffer";
+        report.summary = report.technicalSummary;
         return report;
     }
 
     const auto frames = channels.front().size();
     for (const auto& ch : channels) {
         if (ch.size() != frames) {
+            report.technicalStatus = QcStatus::fail;
             report.status = QcStatus::fail;
-            report.summary = "corrupted duration / channel length mismatch";
+            report.technicalSummary = "corrupted duration / channel length mismatch";
+            report.summary = report.technicalSummary;
             return report;
         }
     }
@@ -80,43 +86,80 @@ ExportQcReport ExportQc::analyse(
     report.integratedLufs = reading.integratedLufs;
     report.loudnessRangeLu = reading.loudnessRangeLu;
 
+    // --- Technical QC (universal) ---
     if (report.nanCount > 0 || report.infCount > 0) {
-        report.status = QcStatus::fail;
-        report.summary = "NaN/Inf present";
-        return report;
-    }
-    if (report.truePeakDbtp > configuredCeilingDbtp + ceilingToleranceDb) {
-        report.status = QcStatus::fail;
-        report.summary = "true peak exceeds configured ceiling";
-        return report;
-    }
-    if (report.durationSeconds <= 0.0) {
-        report.status = QcStatus::fail;
-        report.summary = "corrupted duration";
-        return report;
+        report.technicalStatus = QcStatus::fail;
+        report.technicalSummary = "NaN/Inf present";
+    } else if (report.durationSeconds <= 0.0) {
+        report.technicalStatus = QcStatus::fail;
+        report.technicalSummary = "corrupted duration";
+    } else if (report.truePeakDbtp > configuredCeilingDbtp + ceilingToleranceDb) {
+        report.technicalStatus = QcStatus::fail;
+        report.technicalSummary = "true peak exceeds configured ceiling";
+    } else if (std::abs(report.dcOffset) > 0.05) {
+        report.technicalStatus = QcStatus::fail;
+        report.technicalSummary = "excessive DC offset";
+    } else if (std::abs(report.dcOffset) > 0.01) {
+        report.technicalStatus = QcStatus::warning;
+        report.technicalSummary = "elevated DC offset";
+    } else {
+        report.technicalStatus = QcStatus::pass;
+        report.technicalSummary = "technical PASS";
     }
 
-    if (report.maxLimiterGrDb > 12.0 || report.clippedSampleCount > frames / 10
-        || std::abs(report.dcOffset) > 0.01 || report.integratedLufs < -50.0
-        || report.integratedLufs > -5.0) {
-        report.status = QcStatus::warning;
-        report.summary = "render OK with warnings";
-    } else {
-        report.status = QcStatus::pass;
-        report.summary = "PASS";
+    // --- Style / profile advisory (optional; never upgrades FAIL from silence) ---
+    report.advisoryStatus = QcStatus::pass;
+    report.advisorySummary = "no style profile";
+    if (styleProfile != nullptr) {
+        report.advisorySummary = "style profile: " + styleProfile->name;
+        bool warn = false;
+        if (styleProfile->minIntegratedLufs
+            && report.integratedLufs < *styleProfile->minIntegratedLufs)
+            warn = true;
+        if (styleProfile->maxIntegratedLufs
+            && report.integratedLufs > *styleProfile->maxIntegratedLufs)
+            warn = true;
+        if (styleProfile->maxLimiterGrDb && report.maxLimiterGrDb > *styleProfile->maxLimiterGrDb)
+            warn = true;
+        if (warn) {
+            report.advisoryStatus = QcStatus::warning;
+            report.advisorySummary += " — advisory WARNING";
+        } else {
+            report.advisorySummary += " — advisory PASS";
+        }
     }
+
+    if (report.technicalStatus == QcStatus::fail)
+        report.status = QcStatus::fail;
+    else if (report.technicalStatus == QcStatus::warning
+        || report.advisoryStatus == QcStatus::warning)
+        report.status = QcStatus::warning;
+    else
+        report.status = QcStatus::pass;
+
+    report.summary = report.technicalSummary;
+    if (styleProfile != nullptr)
+        report.summary += "; " + report.advisorySummary;
     return report;
 }
 
+namespace {
+const char* statusName(QcStatus s)
+{
+    return s == QcStatus::pass ? "PASS" : s == QcStatus::warning ? "WARNING" : "FAIL";
+}
+} // namespace
+
 std::string ExportQc::toJson(const ExportQcReport& r)
 {
-    const char* st = r.status == QcStatus::pass ? "PASS"
-        : r.status == QcStatus::warning         ? "WARNING"
-                                                : "FAIL";
     std::ostringstream o;
     o << "{\n"
-      << "  \"status\": \"" << st << "\",\n"
+      << "  \"status\": \"" << statusName(r.status) << "\",\n"
+      << "  \"technicalStatus\": \"" << statusName(r.technicalStatus) << "\",\n"
+      << "  \"advisoryStatus\": \"" << statusName(r.advisoryStatus) << "\",\n"
       << "  \"summary\": \"" << r.summary << "\",\n"
+      << "  \"technicalSummary\": \"" << r.technicalSummary << "\",\n"
+      << "  \"advisorySummary\": \"" << r.advisorySummary << "\",\n"
       << "  \"samplePeakDbfs\": " << r.samplePeakDbfs << ",\n"
       << "  \"truePeakDbtp\": " << r.truePeakDbtp << ",\n"
       << "  \"integratedLufs\": " << r.integratedLufs << ",\n"
@@ -128,6 +171,7 @@ std::string ExportQc::toJson(const ExportQcReport& r)
       << "  \"maxLimiterGrDb\": " << r.maxLimiterGrDb << ",\n"
       << "  \"avgLimiterGrDb\": " << r.avgLimiterGrDb << ",\n"
       << "  \"limiterActiveSeconds\": " << r.limiterActiveSeconds << ",\n"
+      << "  \"safetyClampActivationCount\": " << r.safetyClampActivationCount << ",\n"
       << "  \"durationSeconds\": " << r.durationSeconds << ",\n"
       << "  \"sampleRate\": " << r.sampleRate << ",\n"
       << "  \"bitDepth\": " << r.bitDepth << ",\n"
@@ -140,12 +184,11 @@ std::string ExportQc::toJson(const ExportQcReport& r)
 
 std::string ExportQc::toMarkdown(const ExportQcReport& r)
 {
-    const char* st = r.status == QcStatus::pass ? "PASS"
-        : r.status == QcStatus::warning         ? "WARNING"
-                                                : "FAIL";
     std::ostringstream o;
     o << "# Export QC\n\n"
-      << "- Status: **" << st << "** (" << r.summary << ")\n"
+      << "- Overall: **" << statusName(r.status) << "**\n"
+      << "- Technical: **" << statusName(r.technicalStatus) << "** (" << r.technicalSummary << ")\n"
+      << "- Advisory: **" << statusName(r.advisoryStatus) << "** (" << r.advisorySummary << ")\n"
       << "- Sample peak: " << r.samplePeakDbfs << " dBFS\n"
       << "- True peak: " << r.truePeakDbtp << " dBTP (ceiling " << r.configuredCeilingDbtp << ")\n"
       << "- Integrated: " << r.integratedLufs << " LUFS\n"
@@ -153,6 +196,7 @@ std::string ExportQc::toMarkdown(const ExportQcReport& r)
       << "- DC: " << r.dcOffset << "\n"
       << "- NaN/Inf: " << r.nanCount << "/" << r.infCount << "\n"
       << "- Max GR: " << r.maxLimiterGrDb << " dB\n"
+      << "- Safety clamp activations: " << r.safetyClampActivationCount << "\n"
       << "- Duration: " << r.durationSeconds << " s @ " << r.sampleRate << " Hz / "
       << r.bitDepth << "-bit / " << r.channelCount << " ch\n"
       << "- Latency compensation: " << r.renderLatencyCompensationSamples << " samples\n";

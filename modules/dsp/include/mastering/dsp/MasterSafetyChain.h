@@ -36,6 +36,7 @@ struct MasterSafetyMeters {
     double limiterMaxGrDb {0.0};
     double limiterAvgGrDb {0.0};
     std::uint64_t limiterActiveSamples {0};
+    std::uint64_t safetyClampActivationCount {0};
     bool degraded {false};
 };
 
@@ -58,6 +59,8 @@ public:
     const TruePeakLimiter& limiter() const noexcept { return limiter_; }
 
 private:
+    void processChunk(float* const* channels, int channelCount, int sampleCount) noexcept;
+
     MasterSafetySettings settings_;
     SaturationProcessor saturation_;
     SoftClipper softClip_;

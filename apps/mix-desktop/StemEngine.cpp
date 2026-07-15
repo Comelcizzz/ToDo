@@ -579,7 +579,7 @@ bool StemEngine::renderMaster(
         safety.meters(),
         latency,
         project.masterProcessing.clipCeilingDb,
-        0.15);
+        0.10);
     {
         const auto qcJson = destination.withFileExtension(".qc.json");
         const auto qcMd = destination.withFileExtension(".qc.md");
