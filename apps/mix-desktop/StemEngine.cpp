@@ -1,0 +1,1077 @@
+#include "mix-desktop/StemEngine.h"
+#include "mastering/dsp/ExportQc.h"
+#include "mastering/dsp/MasterSafetyChain.h"
+#include "mastering/dsp/VocalRider.h"
+
+#include <algorithm>
+#include <cmath>
+#include <fstream>
+#include <vector>
+
+namespace mastering::desktop {
+
+struct StemEngine::PlaybackTrack {
+    project::TrackRecord record;
+    std::unique_ptr<juce::AudioFormatReaderSource> source;
+    juce::AudioTransportSource transport;
+    dsp::ProcessorChain processor;
+    dsp::DynamicEqProcessor dynamicEq;
+    dsp::VocalRider vocalRider;
+    dsp::ParallelCompressor parallelCompressor;
+    dsp::StereoWidth stereoWidth;
+    juce::AudioBuffer<float> scratch;
+};
+
+StemEngine::StemEngine()
+{
+    formatManager_.registerBasicFormats();
+}
+
+StemEngine::~StemEngine()
+{
+    releaseResources();
+}
+
+void StemEngine::prepareToPlay(int samplesPerBlockExpected, double sampleRate)
+{
+    const juce::ScopedLock guard(lock_);
+    outputSampleRate_ = sampleRate;
+    blockSize_ = samplesPerBlockExpected;
+    masterChain_.prepare(sampleRate, 2);
+    masterSafety_.prepare(sampleRate, samplesPerBlockExpected, 2, 4);
+    {
+        dsp::MasterSafetySettings safety;
+        safety.limiterEnabled = true;
+        safety.limiter.ceilingDbTp = -1.0;
+        safety.limiter.lookAheadMs = 1.5;
+        safety.limiter.oversamplingFactor = 4;
+        safety.clipMode = dsp::ClipMode::none;
+        safety.saturationEnabled = false;
+        masterSafety_.setSettings(safety);
+    }
+    kickBassSeparator_.prepare(sampleRate);
+    kickBassSeparator_.setDepthDb(3.0);
+    referenceTransport_.prepareToPlay(samplesPerBlockExpected, sampleRate);
+    for (auto& track : tracks_) {
+        track->transport.prepareToPlay(samplesPerBlockExpected, sampleRate);
+        track->processor.prepare(sampleRate, 2);
+        track->dynamicEq.prepare(sampleRate, samplesPerBlockExpected, 2);
+        track->vocalRider.prepare(sampleRate);
+        track->parallelCompressor.prepare(sampleRate, samplesPerBlockExpected, 2);
+        track->stereoWidth.prepare(sampleRate, samplesPerBlockExpected);
+        syncParallelStereoFromRecord(*track);
+        if (track->record.dynamicEqEnabled)
+            track->dynamicEq.setState(track->record.dynamicEq);
+        if (track->record.vocalRiderEnabled) {
+            track->vocalRider.setTargetRmsDb(track->record.vocalRiderTargetDb);
+            track->vocalRider.setSmoothingMs(180.0);
+        }
+        track->scratch.setSize(2, samplesPerBlockExpected, false, false, true);
+    }
+    prepared_ = true;
+}
+
+void StemEngine::releaseResources()
+{
+    const juce::ScopedLock guard(lock_);
+    for (auto& track : tracks_)
+        track->transport.releaseResources();
+    referenceTransport_.releaseResources();
+    prepared_ = false;
+}
+
+void StemEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToFill)
+{
+    bufferToFill.clearActiveBufferRegion();
+    const juce::ScopedLock guard(lock_);
+
+    if (monitorSource_ == MonitorSource::reference && referenceSource_ != nullptr) {
+        juce::AudioBuffer<float> referenceScratch(2, bufferToFill.numSamples);
+        referenceScratch.clear();
+        juce::AudioSourceChannelInfo info(&referenceScratch, 0, bufferToFill.numSamples);
+        referenceTransport_.getNextAudioBlock(info);
+        const auto gain = static_cast<float>(dsp::dbToGain(referenceGainDb_));
+        bufferToFill.buffer->addFrom(
+            0,
+            bufferToFill.startSample,
+            referenceScratch,
+            0,
+            0,
+            bufferToFill.numSamples,
+            gain);
+        if (bufferToFill.buffer->getNumChannels() > 1) {
+            bufferToFill.buffer->addFrom(
+                1,
+                bufferToFill.startSample,
+                referenceScratch,
+                1,
+                0,
+                bufferToFill.numSamples,
+                gain);
+        }
+        return;
+    }
+
+    if (tracks_.empty())
+        return;
+
+    const auto anySolo = std::ranges::any_of(tracks_, [](const auto& track) {
+        return track->record.soloed;
+    });
+
+    PlaybackTrack* kickTrack = nullptr;
+    PlaybackTrack* bassTrack = nullptr;
+
+    for (auto& track : tracks_) {
+        if (track->record.muted || (anySolo && !track->record.soloed))
+            continue;
+
+        track->scratch.setSize(2, bufferToFill.numSamples, false, false, true);
+        track->scratch.clear();
+        juce::AudioSourceChannelInfo trackInfo(&track->scratch, 0, bufferToFill.numSamples);
+        track->transport.getNextAudioBlock(trackInfo);
+        float* trackChannels[] {
+            track->scratch.getWritePointer(0),
+            track->scratch.getWritePointer(1)
+        };
+        // RAW compare: dry stems only (no processor / DynEQ / rider / parallel / width).
+        if (compareMode_ != CompareMode::raw) {
+            const auto t = track->transport.getCurrentPosition();
+            applySectionParameterAutomation(*track, t);
+            track->processor.process(trackChannels, 2, bufferToFill.numSamples);
+            if (track->record.vocalRiderEnabled)
+                track->vocalRider.process(trackChannels, 2, bufferToFill.numSamples);
+            if (track->record.parallelEnabled
+                || track->record.role == project::TrackRole::drumBus) {
+                track->parallelCompressor.process(trackChannels, 2, bufferToFill.numSamples);
+            }
+            if (track->record.stereoWidthEnabled) {
+                track->stereoWidth.process(trackChannels, 2, bufferToFill.numSamples);
+            }
+        }
+
+        if (track->record.role == project::TrackRole::kick)
+            kickTrack = track.get();
+        if (track->record.role == project::TrackRole::bass)
+            bassTrack = track.get();
+    }
+
+    // Frequency-dependent kick→bass duck when Mix Pass DynEQ is enabled on bass.
+    // Falls back to legacy broadband DynamicSeparator only when DynEQ is off.
+    if (compareMode_ != CompareMode::raw && kickTrack != nullptr && bassTrack != nullptr) {
+        const float* sidechain[] {
+            kickTrack->scratch.getReadPointer(0),
+            kickTrack->scratch.getReadPointer(1)
+        };
+        float* target[] {
+            bassTrack->scratch.getWritePointer(0),
+            bassTrack->scratch.getWritePointer(1)
+        };
+        if (bassTrack->record.dynamicEqEnabled) {
+            bassTrack->dynamicEq.process(target, sidechain, 2, bufferToFill.numSamples);
+        } else {
+            kickBassSeparator_.process(sidechain, target, 2, bufferToFill.numSamples);
+        }
+    }
+
+    // Other DynEQ tracks (guitar unmask etc.) — external SC from configured source id.
+    if (compareMode_ != CompareMode::raw) {
+        for (auto& track : tracks_) {
+            if (!track->record.dynamicEqEnabled || track->record.role == project::TrackRole::bass)
+                continue;
+            if (track->record.muted || (anySolo && !track->record.soloed))
+                continue;
+            const auto& scId = track->record.dynamicEq.bands[0].sidechainSourceId;
+            PlaybackTrack* scTrack = nullptr;
+            if (!scId.empty()) {
+                for (auto& candidate : tracks_) {
+                    if (candidate->record.id == scId) {
+                        scTrack = candidate.get();
+                        break;
+                    }
+                }
+            }
+            float* target[] {
+                track->scratch.getWritePointer(0),
+                track->scratch.getWritePointer(1)
+            };
+            if (scTrack != nullptr) {
+                const float* sidechain[] {
+                    scTrack->scratch.getReadPointer(0),
+                    scTrack->scratch.getReadPointer(1)
+                };
+                track->dynamicEq.process(target, sidechain, 2, bufferToFill.numSamples);
+            } else {
+                track->dynamicEq.process(target, nullptr, 2, bufferToFill.numSamples);
+            }
+        }
+    }
+
+    for (auto& track : tracks_) {
+        if (track->record.muted || (anySolo && !track->record.soloed))
+            continue;
+
+        auto gainDb = track->record.gainDb;
+        if (compareMode_ != CompareMode::raw) {
+            const auto t = track->transport.getCurrentPosition();
+            gainDb += assistant::SectionAutomation::evaluateGainOffset(
+                sectionProject_,
+                sectionAutomation_,
+                track->record.id,
+                t);
+        }
+        const auto gain = static_cast<float>(dsp::dbToGain(gainDb));
+        const auto pan = std::clamp(track->record.pan, -1.0, 1.0);
+        const auto leftGain = gain * static_cast<float>(std::sqrt((1.0 - pan) * 0.5));
+        const auto rightGain = gain * static_cast<float>(std::sqrt((1.0 + pan) * 0.5));
+        const auto polarity = track->record.polarityInverted ? -1.0f : 1.0f;
+
+        bufferToFill.buffer->addFrom(
+            0,
+            bufferToFill.startSample,
+            track->scratch,
+            0,
+            0,
+            bufferToFill.numSamples,
+            leftGain * polarity);
+        if (bufferToFill.buffer->getNumChannels() > 1) {
+            bufferToFill.buffer->addFrom(
+                1,
+                bufferToFill.startSample,
+                track->scratch,
+                1,
+                0,
+                bufferToFill.numSamples,
+                rightGain * polarity);
+        }
+    }
+
+    // RAW: no master chain / safety (true dry sum). AUTO/CURRENT: full path.
+    std::array<float*, 2> outputChannels {
+        bufferToFill.buffer->getWritePointer(0, bufferToFill.startSample),
+        bufferToFill.buffer->getNumChannels() > 1
+            ? bufferToFill.buffer->getWritePointer(1, bufferToFill.startSample)
+            : nullptr
+    };
+    const auto channelCount = bufferToFill.buffer->getNumChannels() > 1 ? 2 : 1;
+    if (compareMode_ != CompareMode::raw) {
+        masterChain_.process(outputChannels.data(), channelCount, bufferToFill.numSamples);
+        masterSafety_.process(outputChannels.data(), channelCount, bufferToFill.numSamples);
+    }
+
+    // Loudness-match makeup for A/B compare (after creative limiter / safety).
+    if (compareMode_ != CompareMode::reference
+        && std::abs(compareMatchGainDb_) > 1.0e-6) {
+        const auto matchGain = static_cast<float>(dsp::dbToGain(compareMatchGainDb_));
+        bufferToFill.buffer->applyGain(
+            bufferToFill.startSample,
+            bufferToFill.numSamples,
+            matchGain);
+    }
+}
+
+std::vector<project::TrackRecord> StemEngine::importFiles(
+    const juce::Array<juce::File>& files)
+{
+    stop();
+    if (files.isEmpty())
+        return {};
+
+    std::vector<project::TrackRecord> imported;
+    for (const auto& file : files) {
+        auto reader = std::unique_ptr<juce::AudioFormatReader>(
+            formatManager_.createReaderFor(file));
+        if (reader == nullptr)
+            continue;
+
+        project::TrackRecord record;
+        record.id = project::makeProjectId();
+        record.name = file.getFileNameWithoutExtension().toStdString();
+        record.audioPath = file.getFullPathName().toStdString();
+        record.role = project::inferRoleFromFilename(file.getFileName().toStdString());
+        record.metrics = analyzeFile(*reader);
+        imported.push_back(record);
+    }
+
+    // Empty/failed import is a no-op: keep existing engine tracks.
+    if (imported.empty())
+        return {};
+
+    const juce::ScopedLock guard(lock_);
+    tracks_.clear();
+    for (const auto& record : imported) {
+        if (auto playback = createPlaybackTrack(record))
+            tracks_.push_back(std::move(playback));
+    }
+    mixIntegratedLufs_ = 0.0;
+    for (const auto& track : imported)
+        mixIntegratedLufs_ += track.metrics.integratedLufs;
+    mixIntegratedLufs_ /= static_cast<double>(imported.size());
+    recalculateReferenceGain();
+    return imported;
+}
+
+void StemEngine::loadProject(const project::ProjectDocument& project)
+{
+    stop();
+    const juce::ScopedLock guard(lock_);
+    tracks_.clear();
+    sectionProject_ = project;
+    sectionAutomation_ = assistant::SectionAutomation::fromActions(project.mixPassActions);
+    masterChain_.setSettings(project.masterProcessing);
+    mixIntegratedLufs_ = 0.0;
+    for (const auto& record : project.tracks) {
+        mixIntegratedLufs_ += record.metrics.integratedLufs;
+        if (auto playback = createPlaybackTrack(record))
+            tracks_.push_back(std::move(playback));
+    }
+    if (!project.tracks.empty())
+        mixIntegratedLufs_ /= static_cast<double>(project.tracks.size());
+    recalculateReferenceGain();
+}
+
+void StemEngine::setSectionAutomation(const assistant::SectionAutomationState& state)
+{
+    const juce::ScopedLock guard(lock_);
+    sectionAutomation_ = state;
+}
+
+void StemEngine::updateTrack(const project::TrackRecord& record)
+{
+    const juce::ScopedLock guard(lock_);
+    const auto iterator = std::ranges::find_if(tracks_, [&record](const auto& track) {
+        return track->record.id == record.id;
+    });
+    if (iterator != tracks_.end()) {
+        (*iterator)->record = record;
+        (*iterator)->processor.setSettings(record.processing);
+        syncParallelStereoFromRecord(**iterator);
+        if (record.dynamicEqEnabled)
+            (*iterator)->dynamicEq.setState(record.dynamicEq);
+        if (record.vocalRiderEnabled) {
+            (*iterator)->vocalRider.setTargetRmsDb(record.vocalRiderTargetDb);
+            (*iterator)->vocalRider.setSmoothingMs(180.0);
+        }
+    }
+}
+
+void StemEngine::applyMixPassAction(const project::MixPassAction& action)
+{
+    const juce::ScopedLock guard(lock_);
+    const auto iterator = std::ranges::find_if(tracks_, [&action](const auto& track) {
+        return track->record.id == action.targetTrackId;
+    });
+    if (iterator == tracks_.end())
+        return;
+    auto& track = **iterator;
+    if (action.processorId == "gain")
+        track.record.gainDb = action.proposedValue;
+    if (action.hasProposedProcessing) {
+        track.record.processing = action.proposedProcessing;
+        track.processor.setSettings(action.proposedProcessing);
+    }
+    if (action.hasProposedDynamicEq) {
+        track.record.dynamicEq = action.proposedDynamicEq;
+        track.record.dynamicEqEnabled = true;
+        track.dynamicEq.setState(action.proposedDynamicEq);
+    }
+    if (action.processorId == "vocalRider") {
+        track.record.vocalRiderEnabled = true;
+        track.record.vocalRiderTargetDb = action.vocalRiderTargetDb;
+        track.vocalRider.setTargetRmsDb(action.vocalRiderTargetDb);
+        track.vocalRider.setSmoothingMs(180.0);
+    }
+    if (action.processorId == "parallelCompressor" || action.processorId == "parallel") {
+        track.record.parallelEnabled = true;
+        track.record.parallelWet = std::clamp(action.proposedValue, 0.0, 1.0);
+        syncParallelStereoFromRecord(track);
+    }
+    if (action.processorId == "stereoWidth" || action.processorId == "stereo") {
+        track.record.stereoWidthEnabled = true;
+        track.record.sideGainDb = action.proposedValue;
+        syncParallelStereoFromRecord(track);
+    }
+}
+
+void StemEngine::applyPlan(const assistant::MixPlan& plan)
+{
+    const juce::ScopedLock guard(lock_);
+    for (const auto& adjustment : plan.trackAdjustments) {
+        if (adjustment.state == assistant::ActionState::rejected)
+            continue;
+        const auto iterator = std::ranges::find_if(tracks_, [&adjustment](const auto& track) {
+            return track->record.id == adjustment.trackId;
+        });
+        if (iterator == tracks_.end())
+            continue;
+        (*iterator)->record.gainDb = adjustment.targetGainDb;
+        (*iterator)->record.processing = adjustment.processing;
+        (*iterator)->processor.setSettings(adjustment.processing);
+    }
+    masterChain_.setSettings(plan.masterProcessing);
+}
+
+bool StemEngine::loadReference(const juce::File& file, juce::String& errorMessage)
+{
+    auto reader = std::unique_ptr<juce::AudioFormatReader>(
+        formatManager_.createReaderFor(file));
+    if (reader == nullptr) {
+        errorMessage = "Could not open the reference audio file.";
+        return false;
+    }
+
+    const juce::ScopedLock guard(lock_);
+    referenceMetrics_ = analyzeFile(*reader);
+    const auto sourceSampleRate = reader->sampleRate;
+    referenceSource_ = std::make_unique<juce::AudioFormatReaderSource>(reader.release(), true);
+    referenceTransport_.setSource(
+        referenceSource_.get(),
+        0,
+        nullptr,
+        sourceSampleRate);
+    if (prepared_)
+        referenceTransport_.prepareToPlay(blockSize_, outputSampleRate_);
+    recalculateReferenceGain();
+    return true;
+}
+
+void StemEngine::clearReference()
+{
+    const juce::ScopedLock guard(lock_);
+    referenceTransport_.stop();
+    referenceTransport_.setSource(nullptr);
+    referenceSource_.reset();
+    referenceMetrics_.reset();
+    referenceGainDb_ = 0.0;
+}
+
+void StemEngine::setMonitorSource(MonitorSource source)
+{
+    const juce::ScopedLock guard(lock_);
+    monitorSource_ = source;
+    if (source == MonitorSource::reference)
+        compareMode_ = CompareMode::reference;
+    else if (compareMode_ == CompareMode::reference)
+        compareMode_ = CompareMode::current;
+}
+
+StemEngine::MonitorSource StemEngine::monitorSource() const
+{
+    return monitorSource_;
+}
+
+void StemEngine::setCompareMode(CompareMode mode)
+{
+    const juce::ScopedLock guard(lock_);
+    compareMode_ = mode;
+    monitorSource_ = mode == CompareMode::reference ? MonitorSource::reference
+                                                    : MonitorSource::mix;
+    recalculateCompareMatchGain();
+}
+
+StemEngine::CompareMode StemEngine::compareMode() const
+{
+    return compareMode_;
+}
+
+bool StemEngine::hasReference() const
+{
+    return referenceSource_ != nullptr;
+}
+
+double StemEngine::referenceGainDb() const
+{
+    return referenceGainDb_;
+}
+
+double StemEngine::compareMatchGainDb() const
+{
+    return compareMatchGainDb_;
+}
+
+int StemEngine::modeIndex(CompareMode mode) noexcept
+{
+    switch (mode) {
+    case CompareMode::raw: return 0;
+    case CompareMode::autoProcessed: return 1;
+    case CompareMode::current: return 2;
+    case CompareMode::reference: return 3;
+    }
+    return 2;
+}
+
+void StemEngine::setModeIntegratedLufs(CompareMode mode, double integratedLufs)
+{
+    const juce::ScopedLock guard(lock_);
+    const auto idx = modeIndex(mode);
+    modeLufs_[static_cast<std::size_t>(idx)] = integratedLufs;
+    modeLufsValid_[static_cast<std::size_t>(idx)] = true;
+    recalculateCompareMatchGain();
+}
+
+void StemEngine::recalculateCompareMatchGain()
+{
+    // Match active compare mode loudness toward CURRENT baseline for fair A/B.
+    // Applied at monitor output after creative limiter — not through Mix Pass DSP.
+    compareMatchGainDb_ = 0.0;
+    if (compareMode_ == CompareMode::current || compareMode_ == CompareMode::reference)
+        return;
+
+    const auto currentIdx = modeIndex(CompareMode::current);
+    const auto activeIdx = modeIndex(compareMode_);
+    double currentLufs = mixIntegratedLufs_;
+    double activeLufs = mixIntegratedLufs_;
+    if (modeLufsValid_[static_cast<std::size_t>(currentIdx)])
+        currentLufs = modeLufs_[static_cast<std::size_t>(currentIdx)];
+    if (modeLufsValid_[static_cast<std::size_t>(activeIdx)])
+        activeLufs = modeLufs_[static_cast<std::size_t>(activeIdx)];
+    else if (compareMode_ == CompareMode::raw) {
+        // Approximate dry programme as slightly quieter than processed mix.
+        activeLufs = mixIntegratedLufs_ - 1.5;
+    }
+
+    compareMatchGainDb_ = std::clamp(currentLufs - activeLufs, -12.0, 12.0);
+}
+
+void StemEngine::togglePlayback()
+{
+    const juce::ScopedLock guard(lock_);
+    const auto shouldStart = !isPlaying();
+    for (auto& track : tracks_) {
+        if (shouldStart) {
+            if (track->transport.getCurrentPosition() >= track->transport.getLengthInSeconds())
+                track->transport.setPosition(0.0);
+            track->transport.start();
+        } else {
+            track->transport.stop();
+        }
+    }
+    if (referenceSource_ != nullptr) {
+        if (shouldStart) {
+            if (referenceTransport_.getCurrentPosition()
+                >= referenceTransport_.getLengthInSeconds()) {
+                referenceTransport_.setPosition(0.0);
+            }
+            referenceTransport_.start();
+        } else {
+            referenceTransport_.stop();
+        }
+    }
+}
+
+void StemEngine::stop()
+{
+    const juce::ScopedLock guard(lock_);
+    for (auto& track : tracks_) {
+        track->transport.stop();
+        track->transport.setPosition(0.0);
+    }
+    referenceTransport_.stop();
+    referenceTransport_.setPosition(0.0);
+}
+
+bool StemEngine::isPlaying() const
+{
+    if (monitorSource_ == MonitorSource::reference && referenceSource_ != nullptr)
+        return referenceTransport_.isPlaying();
+    return !tracks_.empty() && tracks_.front()->transport.isPlaying();
+}
+
+double StemEngine::positionSeconds() const
+{
+    if (monitorSource_ == MonitorSource::reference && referenceSource_ != nullptr)
+        return referenceTransport_.getCurrentPosition();
+    return tracks_.empty() ? 0.0 : tracks_.front()->transport.getCurrentPosition();
+}
+
+double StemEngine::durationSeconds() const
+{
+    double duration = 0.0;
+    for (const auto& track : tracks_)
+        duration = std::max(duration, track->transport.getLengthInSeconds());
+    if (referenceSource_ != nullptr)
+        duration = std::max(duration, referenceTransport_.getLengthInSeconds());
+    return duration;
+}
+
+bool StemEngine::renderMaster(
+    const project::ProjectDocument& project,
+    const juce::File& destination,
+    int bitsPerSample,
+    juce::String& errorMessage,
+    CompareMode mode)
+{
+    if (project.tracks.empty()) {
+        errorMessage = "Import at least one stem before exporting.";
+        return false;
+    }
+    if (bitsPerSample != 24 && bitsPerSample != 32) {
+        errorMessage = "Supported export depths are 24-bit and 32-bit float.";
+        return false;
+    }
+
+    struct RenderTrack {
+        project::TrackRecord record;
+        std::unique_ptr<juce::AudioFormatReader> reader;
+        dsp::ProcessorChain processor;
+        dsp::DynamicEqProcessor dynamicEq;
+        dsp::VocalRider vocalRider;
+        dsp::ParallelCompressor parallelCompressor;
+        dsp::StereoWidth stereoWidth;
+        juce::AudioBuffer<float> scratch;
+    };
+    std::vector<RenderTrack> renderTracks;
+    juce::int64 maximumLength = 0;
+    const bool dry = mode == CompareMode::raw;
+    const auto automation = assistant::SectionAutomation::fromActions(project.mixPassActions);
+    for (const auto& track : project.tracks) {
+        auto reader = std::unique_ptr<juce::AudioFormatReader>(
+            formatManager_.createReaderFor(juce::File(track.audioPath)));
+        if (reader == nullptr) {
+            errorMessage = "Could not open stem: " + juce::String(track.audioPath);
+            return false;
+        }
+        if (std::abs(reader->sampleRate - project.sampleRate) > 1.0) {
+            errorMessage = "All stems must use the project sample rate.";
+            return false;
+        }
+        maximumLength = std::max(maximumLength, reader->lengthInSamples);
+        renderTracks.emplace_back();
+        auto& renderTrack = renderTracks.back();
+        renderTrack.record = track;
+        renderTrack.reader = std::move(reader);
+        renderTrack.processor.prepare(project.sampleRate, 2);
+        renderTrack.processor.setSettings(track.processing);
+        renderTrack.dynamicEq.prepare(project.sampleRate, 2'048, 2);
+        renderTrack.vocalRider.prepare(project.sampleRate);
+        renderTrack.parallelCompressor.prepare(project.sampleRate, 2'048, 2);
+        renderTrack.stereoWidth.prepare(project.sampleRate, 2'048);
+        {
+            dsp::ParallelCompressorState ps;
+            ps.wetAmount = track.parallelWet;
+            ps.thresholdDb = track.parallelThresholdDb;
+            ps.ratio = track.parallelRatio;
+            ps.attackMs = track.parallelAttackMs;
+            ps.releaseMs = track.parallelReleaseMs;
+            ps.makeupDb = track.parallelMakeupDb;
+            ps.bypass = !(track.parallelEnabled || track.role == project::TrackRole::drumBus);
+            renderTrack.parallelCompressor.setState(ps);
+        }
+        {
+            dsp::StereoWidthState ws;
+            ws.sideGainDb = track.sideGainDb;
+            ws.midGainDb = track.midGainDb;
+            ws.lowBandMonoHz = track.lowBandMonoHz;
+            ws.bypass = !track.stereoWidthEnabled;
+            renderTrack.stereoWidth.setState(ws);
+        }
+        if (track.dynamicEqEnabled)
+            renderTrack.dynamicEq.setState(track.dynamicEq);
+        if (track.vocalRiderEnabled) {
+            renderTrack.vocalRider.setTargetRmsDb(track.vocalRiderTargetDb);
+            renderTrack.vocalRider.setSmoothingMs(180.0);
+        }
+    }
+
+    destination.deleteFile();
+    auto outputStream = destination.createOutputStream();
+    if (outputStream == nullptr) {
+        errorMessage = "Could not create the destination WAV file.";
+        return false;
+    }
+    juce::WavAudioFormat format;
+    auto options = juce::AudioFormatWriterOptions {}
+                       .withSampleRate(project.sampleRate)
+                       .withNumChannels(2)
+                       .withBitsPerSample(bitsPerSample)
+                       .withSampleFormat(
+                           bitsPerSample == 32
+                               ? juce::AudioFormatWriterOptions::SampleFormat::floatingPoint
+                               : juce::AudioFormatWriterOptions::SampleFormat::integral);
+    std::unique_ptr<juce::OutputStream> ownedStream(outputStream.release());
+    auto writer = format.createWriterFor(ownedStream, options);
+    if (writer == nullptr) {
+        errorMessage = "Could not initialize the WAV writer.";
+        return false;
+    }
+
+    constexpr int renderBlockSize = 2'048;
+    juce::AudioBuffer<float> mix(2, renderBlockSize);
+    dsp::ProcessorChain master;
+    master.prepare(project.sampleRate, 2);
+    master.setSettings(project.masterProcessing);
+    dsp::MasterSafetyChain safety;
+    safety.prepare(project.sampleRate, renderBlockSize, 2, 4);
+    {
+        dsp::MasterSafetySettings s;
+        s.limiterEnabled = true;
+        s.limiter.ceilingDbTp = project.masterProcessing.clipCeilingDb;
+        s.limiter.lookAheadMs = 1.5;
+        s.limiter.oversamplingFactor = 4;
+        s.clipMode = dsp::ClipMode::none;
+        s.saturationEnabled = false;
+        safety.setSettings(s);
+    }
+    dsp::DynamicSeparator separator;
+    separator.prepare(project.sampleRate);
+    separator.setDepthDb(3.0);
+    const auto anySolo = std::ranges::any_of(project.tracks, [](const auto& track) {
+        return track.soloed;
+    });
+
+    // Accumulate full render for latency trim + QC (music-length stems).
+    std::vector<std::vector<float>> rendered(2);
+    rendered[0].reserve(static_cast<std::size_t>(maximumLength) + 8192);
+    rendered[1].reserve(static_cast<std::size_t>(maximumLength) + 8192);
+
+    for (juce::int64 position = 0; position < maximumLength; position += renderBlockSize) {
+        const auto samples = static_cast<int>(
+            std::min<juce::int64>(renderBlockSize, maximumLength - position));
+        const double timeSeconds = double(position) / project.sampleRate;
+        mix.clear();
+
+        RenderTrack* kick = nullptr;
+        RenderTrack* bass = nullptr;
+        for (auto& track : renderTracks) {
+            if (track.record.muted || (anySolo && !track.record.soloed))
+                continue;
+            track.scratch.setSize(2, samples, false, false, true);
+            track.scratch.clear();
+            track.reader->read(&track.scratch, 0, samples, position, true, true);
+            float* channels[] {
+                track.scratch.getWritePointer(0),
+                track.scratch.getWritePointer(1)
+            };
+            if (!dry) {
+                const double dynMaxCutOffset = assistant::SectionAutomation::evaluateParameterOffset(
+                    project, automation, track.record.id, "dynMaxCutDb", timeSeconds);
+                if (std::abs(dynMaxCutOffset) > 1.0e-9 && track.record.dynamicEqEnabled) {
+                    auto state = track.record.dynamicEq;
+                    state.bands[0].maxCutDb = std::clamp(
+                        track.record.dynamicEq.bands[0].maxCutDb + dynMaxCutOffset, 0.0, 24.0);
+                    track.dynamicEq.setState(state);
+                }
+                const double parallelWetOffset = assistant::SectionAutomation::evaluateParameterOffset(
+                    project, automation, track.record.id, "parallelWet", timeSeconds);
+                if (track.record.parallelEnabled
+                    || track.record.role == project::TrackRole::drumBus
+                    || std::abs(parallelWetOffset) > 1.0e-9) {
+                    dsp::ParallelCompressorState ps;
+                    ps.wetAmount = std::clamp(track.record.parallelWet + parallelWetOffset, 0.0, 1.0);
+                    ps.thresholdDb = track.record.parallelThresholdDb;
+                    ps.ratio = track.record.parallelRatio;
+                    ps.attackMs = track.record.parallelAttackMs;
+                    ps.releaseMs = track.record.parallelReleaseMs;
+                    ps.makeupDb = track.record.parallelMakeupDb;
+                    ps.bypass = !(track.record.parallelEnabled
+                        || track.record.role == project::TrackRole::drumBus);
+                    track.parallelCompressor.setState(ps);
+                }
+                const double widthOffset = assistant::SectionAutomation::evaluateParameterOffset(
+                    project, automation, track.record.id, "stereoWidth", timeSeconds);
+                if (track.record.stereoWidthEnabled || std::abs(widthOffset) > 1.0e-9) {
+                    dsp::StereoWidthState ws;
+                    ws.sideGainDb = track.record.sideGainDb + widthOffset;
+                    ws.midGainDb = track.record.midGainDb;
+                    ws.lowBandMonoHz = track.record.lowBandMonoHz;
+                    ws.bypass = !track.record.stereoWidthEnabled && std::abs(widthOffset) < 1.0e-9;
+                    track.stereoWidth.setState(ws);
+                }
+
+                track.processor.process(channels, 2, samples);
+                if (track.record.vocalRiderEnabled)
+                    track.vocalRider.process(channels, 2, samples);
+                if (track.record.parallelEnabled
+                    || track.record.role == project::TrackRole::drumBus) {
+                    track.parallelCompressor.process(channels, 2, samples);
+                }
+                if (track.record.stereoWidthEnabled || std::abs(widthOffset) > 1.0e-9)
+                    track.stereoWidth.process(channels, 2, samples);
+            }
+            if (track.record.role == project::TrackRole::kick)
+                kick = &track;
+            if (track.record.role == project::TrackRole::bass)
+                bass = &track;
+        }
+
+        if (!dry && kick != nullptr && bass != nullptr) {
+            const float* sidechain[] {
+                kick->scratch.getReadPointer(0),
+                kick->scratch.getReadPointer(1)
+            };
+            float* target[] {
+                bass->scratch.getWritePointer(0),
+                bass->scratch.getWritePointer(1)
+            };
+            if (bass->record.dynamicEqEnabled)
+                bass->dynamicEq.process(target, sidechain, 2, samples);
+            else
+                separator.process(sidechain, target, 2, samples);
+        }
+
+        if (!dry) {
+            for (auto& track : renderTracks) {
+                if (!track.record.dynamicEqEnabled || track.record.role == project::TrackRole::bass)
+                    continue;
+                if (track.record.muted || (anySolo && !track.record.soloed))
+                    continue;
+                const auto& scId = track.record.dynamicEq.bands[0].sidechainSourceId;
+                RenderTrack* scTrack = nullptr;
+                if (!scId.empty()) {
+                    for (auto& candidate : renderTracks) {
+                        if (candidate.record.id == scId) {
+                            scTrack = &candidate;
+                            break;
+                        }
+                    }
+                }
+                float* target[] {
+                    track.scratch.getWritePointer(0),
+                    track.scratch.getWritePointer(1)
+                };
+                if (scTrack != nullptr) {
+                    const float* sidechain[] {
+                        scTrack->scratch.getReadPointer(0),
+                        scTrack->scratch.getReadPointer(1)
+                    };
+                    track.dynamicEq.process(target, sidechain, 2, samples);
+                } else {
+                    track.dynamicEq.process(target, nullptr, 2, samples);
+                }
+            }
+        }
+
+        for (auto& track : renderTracks) {
+            if (track.record.muted || (anySolo && !track.record.soloed))
+                continue;
+            auto gainDb = track.record.gainDb;
+            if (!dry) {
+                gainDb += assistant::SectionAutomation::evaluateGainOffset(
+                    project,
+                    automation,
+                    track.record.id,
+                    timeSeconds);
+            }
+            const auto gain = static_cast<float>(dsp::dbToGain(gainDb));
+            const auto pan = std::clamp(track.record.pan, -1.0, 1.0);
+            const auto polarity = track.record.polarityInverted ? -1.0f : 1.0f;
+            mix.addFrom(
+                0,
+                0,
+                track.scratch,
+                0,
+                0,
+                samples,
+                gain * static_cast<float>(std::sqrt((1.0 - pan) * 0.5)) * polarity);
+            mix.addFrom(
+                1,
+                0,
+                track.scratch,
+                1,
+                0,
+                samples,
+                gain * static_cast<float>(std::sqrt((1.0 + pan) * 0.5)) * polarity);
+        }
+
+        float* mixChannels[] {mix.getWritePointer(0), mix.getWritePointer(1)};
+        if (!dry) {
+            master.process(mixChannels, 2, samples);
+            safety.process(mixChannels, 2, samples);
+        }
+        for (int i = 0; i < samples; ++i) {
+            rendered[0].push_back(mix.getSample(0, i));
+            rendered[1].push_back(mix.getSample(1, i));
+        }
+    }
+
+    // Flush processor latency/tail (skipped for RAW).
+    const int latency = dry ? 0 : safety.latencySamples();
+    if (!dry) {
+        juce::AudioBuffer<float> flush(2, std::max(64, latency + 64));
+        flush.clear();
+        float* flushCh[] {flush.getWritePointer(0), flush.getWritePointer(1)};
+        safety.finalize(flushCh, 2, flush.getNumSamples());
+        for (int i = 0; i < flush.getNumSamples(); ++i) {
+            rendered[0].push_back(flush.getSample(0, i));
+            rendered[1].push_back(flush.getSample(1, i));
+        }
+    }
+
+    // Trim pure leading processing latency; preserve musical duration ≈ maximumLength.
+    const auto trim = static_cast<std::size_t>(std::max(0, latency));
+    const auto keep = static_cast<std::size_t>(maximumLength);
+    std::vector<std::vector<float>> trimmed(2);
+    for (int ch = 0; ch < 2; ++ch) {
+        if (rendered[static_cast<std::size_t>(ch)].size() <= trim) {
+            errorMessage = "Render too short after latency compensation.";
+            return false;
+        }
+        const auto begin = rendered[static_cast<std::size_t>(ch)].begin() + static_cast<std::ptrdiff_t>(trim);
+        const auto available = rendered[static_cast<std::size_t>(ch)].size() - trim;
+        const auto n = std::min(keep, available);
+        trimmed[static_cast<std::size_t>(ch)].assign(begin, begin + static_cast<std::ptrdiff_t>(n));
+    }
+
+    const auto qc = dsp::ExportQc::analyse(
+        trimmed,
+        project.sampleRate,
+        bitsPerSample,
+        dry ? dsp::MasterSafetyMeters {} : safety.meters(),
+        latency,
+        project.masterProcessing.clipCeilingDb,
+        0.10);
+    {
+        const auto qcJson = destination.withFileExtension(".qc.json");
+        const auto qcMd = destination.withFileExtension(".qc.md");
+        std::ofstream(qcJson.getFullPathName().toStdString()) << dsp::ExportQc::toJson(qc);
+        std::ofstream(qcMd.getFullPathName().toStdString()) << dsp::ExportQc::toMarkdown(qc);
+    }
+    if (!dry && qc.status == dsp::QcStatus::fail) {
+        errorMessage = "Export QC FAIL: " + juce::String(qc.summary);
+        return false;
+    }
+
+    {
+        const juce::ScopedLock guard(lock_);
+        if (qc.integratedLufs > -70.0) {
+            modeLufs_[static_cast<std::size_t>(modeIndex(mode))] = qc.integratedLufs;
+            modeLufsValid_[static_cast<std::size_t>(modeIndex(mode))] = true;
+            recalculateCompareMatchGain();
+        }
+    }
+
+    // Write compensated buffer.
+    for (std::size_t offset = 0; offset < keep; offset += static_cast<std::size_t>(renderBlockSize)) {
+        const auto samples = static_cast<int>(
+            std::min(static_cast<std::size_t>(renderBlockSize), keep - offset));
+        mix.clear();
+        for (int i = 0; i < samples; ++i) {
+            mix.setSample(0, i, trimmed[0][offset + static_cast<std::size_t>(i)]);
+            mix.setSample(1, i, trimmed[1][offset + static_cast<std::size_t>(i)]);
+        }
+        if (!writer->writeFromAudioSampleBuffer(mix, 0, samples)) {
+            errorMessage = "Disk write failed before the master was complete.";
+            return false;
+        }
+    }
+    return true;
+}
+
+std::unique_ptr<StemEngine::PlaybackTrack> StemEngine::createPlaybackTrack(
+    const project::TrackRecord& record)
+{
+    auto reader = std::unique_ptr<juce::AudioFormatReader>(
+        formatManager_.createReaderFor(juce::File(record.audioPath)));
+    if (reader == nullptr)
+        return {};
+
+    auto track = std::make_unique<PlaybackTrack>();
+    track->record = record;
+    const auto sourceSampleRate = reader->sampleRate;
+    track->source = std::make_unique<juce::AudioFormatReaderSource>(reader.release(), true);
+    track->transport.setSource(track->source.get(), 0, nullptr, sourceSampleRate);
+    track->processor.setSettings(record.processing);
+    if (prepared_) {
+        track->transport.prepareToPlay(blockSize_, outputSampleRate_);
+        track->processor.prepare(outputSampleRate_, 2);
+        track->dynamicEq.prepare(outputSampleRate_, blockSize_, 2);
+        track->vocalRider.prepare(outputSampleRate_);
+        track->parallelCompressor.prepare(outputSampleRate_, blockSize_, 2);
+        track->stereoWidth.prepare(outputSampleRate_, blockSize_);
+        syncParallelStereoFromRecord(*track);
+        if (record.dynamicEqEnabled)
+            track->dynamicEq.setState(record.dynamicEq);
+        if (record.vocalRiderEnabled) {
+            track->vocalRider.setTargetRmsDb(record.vocalRiderTargetDb);
+            track->vocalRider.setSmoothingMs(180.0);
+        }
+        track->scratch.setSize(2, blockSize_);
+    }
+    return track;
+}
+
+void StemEngine::syncParallelStereoFromRecord(PlaybackTrack& track)
+{
+    dsp::ParallelCompressorState ps;
+    ps.wetAmount = track.record.parallelWet;
+    ps.thresholdDb = track.record.parallelThresholdDb;
+    ps.ratio = track.record.parallelRatio;
+    ps.attackMs = track.record.parallelAttackMs;
+    ps.releaseMs = track.record.parallelReleaseMs;
+    ps.makeupDb = track.record.parallelMakeupDb;
+    ps.bypass = !(track.record.parallelEnabled
+        || track.record.role == project::TrackRole::drumBus);
+    track.parallelCompressor.setState(ps);
+
+    dsp::StereoWidthState ws;
+    ws.sideGainDb = track.record.sideGainDb;
+    ws.midGainDb = track.record.midGainDb;
+    ws.lowBandMonoHz = track.record.lowBandMonoHz > 0.0 ? track.record.lowBandMonoHz : 120.0;
+    ws.bypass = !track.record.stereoWidthEnabled;
+    track.stereoWidth.setState(ws);
+}
+
+void StemEngine::applySectionParameterAutomation(PlaybackTrack& track, double timeSeconds)
+{
+    const double dynMaxCutOffset = assistant::SectionAutomation::evaluateParameterOffset(
+        sectionProject_, sectionAutomation_, track.record.id, "dynMaxCutDb", timeSeconds);
+    if (track.record.dynamicEqEnabled && std::abs(dynMaxCutOffset) > 1.0e-9) {
+        auto state = track.record.dynamicEq;
+        state.bands[0].maxCutDb = std::clamp(
+            track.record.dynamicEq.bands[0].maxCutDb + dynMaxCutOffset, 0.0, 24.0);
+        track.dynamicEq.setState(state);
+    }
+
+    const double parallelWetOffset = assistant::SectionAutomation::evaluateParameterOffset(
+        sectionProject_, sectionAutomation_, track.record.id, "parallelWet", timeSeconds);
+    if (track.record.parallelEnabled
+        || track.record.role == project::TrackRole::drumBus
+        || std::abs(parallelWetOffset) > 1.0e-9) {
+        dsp::ParallelCompressorState ps = track.parallelCompressor.state();
+        ps.wetAmount = std::clamp(track.record.parallelWet + parallelWetOffset, 0.0, 1.0);
+        ps.bypass = !(track.record.parallelEnabled
+            || track.record.role == project::TrackRole::drumBus);
+        track.parallelCompressor.setState(ps);
+    }
+
+    const double widthOffset = assistant::SectionAutomation::evaluateParameterOffset(
+        sectionProject_, sectionAutomation_, track.record.id, "stereoWidth", timeSeconds);
+    if (track.record.stereoWidthEnabled || std::abs(widthOffset) > 1.0e-9) {
+        dsp::StereoWidthState ws = track.stereoWidth.state();
+        ws.sideGainDb = track.record.sideGainDb + widthOffset;
+        ws.bypass = !track.record.stereoWidthEnabled && std::abs(widthOffset) < 1.0e-9;
+        track.stereoWidth.setState(ws);
+    }
+}
+
+analysis::AudioMetrics StemEngine::analyzeFile(juce::AudioFormatReader& reader) const
+{
+    constexpr double maximumAnalysisSeconds = 15.0 * 60.0;
+    const auto frameCount = static_cast<int>(
+        std::min<double>(reader.lengthInSamples, reader.sampleRate * maximumAnalysisSeconds));
+    const auto channelCount = juce::jlimit(1, 2, static_cast<int>(reader.numChannels));
+    juce::AudioBuffer<float> buffer(channelCount, frameCount);
+    reader.read(&buffer, 0, frameCount, 0, true, channelCount > 1);
+
+    std::vector<std::vector<float>> channels(
+        static_cast<std::size_t>(channelCount),
+        std::vector<float>(static_cast<std::size_t>(frameCount)));
+    for (int channel = 0; channel < channelCount; ++channel)
+        std::copy_n(buffer.getReadPointer(channel), frameCount, channels[static_cast<std::size_t>(channel)].begin());
+
+    return analysis::AudioAnalyzer {}.analyze(channels, reader.sampleRate);
+}
+
+void StemEngine::recalculateReferenceGain()
+{
+    if (!referenceMetrics_) {
+        referenceGainDb_ = 0.0;
+        return;
+    }
+    referenceGainDb_ = std::clamp(
+        mixIntegratedLufs_ - referenceMetrics_->integratedLufs,
+        -24.0,
+        24.0);
+}
+
+} // namespace mastering::desktop

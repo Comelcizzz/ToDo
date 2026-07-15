@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mastering-audio-ml"
+version = "0.1.0"
+description = "Offline explainable-ML research pipeline for Mastering Audio Suite"
+requires-python = ">=3.11"
+dependencies = [
+    "joblib",
+    "numpy",
+    "scikit-learn",
+]
+
+[project.scripts]
+mastering-audio-train = "mastering_audio_ml.train:main"
+mastering-audio-predict = "mastering_audio_ml.predict:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mastering_audio_ml*"]

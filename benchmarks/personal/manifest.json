@@ -1,0 +1,22 @@
+{
+  "copyrightedAudio": false,
+  "expectedRoles": [
+    "kick",
+    "snare",
+    "bass",
+    "rhythm-guitar-left",
+    "rhythm-guitar-right",
+    "clean-vocal",
+    "scream-vocal"
+  ],
+  "layout": {
+    "references": "references/",
+    "renders": "renders/",
+    "reports": "reports/",
+    "stems": "stems/",
+    "targets": "targets/"
+  },
+  "name": "personal-metalcore-benchmark",
+  "notes": "Place your local stems under stems/ and references under references/. Repository ships only synthetic placeholders.",
+  "version": 1
+}

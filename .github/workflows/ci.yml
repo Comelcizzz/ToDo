@@ -1,0 +1,328 @@
+name: ci
+
+on:
+  push:
+    branches: [master, "cursor/**"]
+  pull_request:
+
+jobs:
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ cmake ninja-build curl file
+      - name: Fetch official EBU loudness vectors
+        run: |
+          ./scripts/fetch-loudness-testdata.sh auto || ./scripts/fetch-loudness-testdata.sh manual
+        continue-on-error: true
+      - name: Configure and test core
+        run: |
+          cmake -S . -B build/core -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++ \
+            -DMASTERING_AUDIO_BUILD_PRODUCTS=OFF \
+            -DMASTERING_AUDIO_BUILD_TESTS=ON
+          cmake --build build/core --parallel
+          ctest --test-dir build/core --output-on-failure
+          # Re-run official suite when WAVs present to refresh compliance artifacts
+          if [[ -d testdata/official/wav ]] && compgen -G "testdata/official/wav/*.wav" > /dev/null; then
+            ./build/core/mastering_audio_tests "[official]" --reporter compact
+          fi
+          mkdir -p artifacts/dsp_validation artifacts/dynamic_processing_validation artifacts/mix_node_validation artifacts/mixpass_validation artifacts/metalcore_engine_validation
+          ./build/core/dsp_validation_render artifacts/dsp_validation
+          ./build/core/dynamic_processing_validation artifacts/dynamic_processing_validation
+          ./build/core/mix_node_validation artifacts/mix_node_validation
+          ./build/core/mixpass_validation artifacts/mixpass_validation benchmarks/personal
+          ./build/core/metalcore_engine_validation artifacts/metalcore_engine_validation
+          ./build/core/mastering_audio_tests "[milestone1b]" --reporter compact
+          ./build/core/mastering_audio_tests "[milestone1c]" --reporter compact
+          ./build/core/mastering_audio_tests "[milestone2a]" --reporter compact
+          ./build/core/mastering_audio_tests "[milestone3a]" --reporter compact
+          ./build/core/mastering_audio_tests "[milestone3b]" --reporter compact
+          ./build/core/mastering_audio_tests "[milestone3c]" --reporter compact
+          ./build/core/mastering_audio_tests "[milestone4a]" --reporter compact
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: metering-compliance-artifacts
+          path: |
+            testdata/official/metering-official-validation.json
+            testdata/official/metering-official-validation.md
+            testdata/official/kweight-frequency-response.json
+            testdata/official/kweight-frequency-response.md
+            build/core/metering-validation.json
+            build/core/metering-validation.md
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dsp-validation-artifacts
+          path: |
+            artifacts/dsp_validation/**
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dsp-benchmark-summary
+          path: |
+            artifacts/dsp_validation/benchmark_smoke.md
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dynamic-processing-validation
+          path: |
+            artifacts/dynamic_processing_validation/**
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dynamic-processing-benchmark-summary
+          path: |
+            artifacts/dynamic_processing_validation/benchmark_smoke.md
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mix-node-validation
+          path: |
+            artifacts/mix_node_validation/**
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mix-node-benchmark-summary
+          path: |
+            artifacts/mix_node_validation/benchmark_smoke.md
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mixpass-validation
+          path: |
+            artifacts/mixpass_validation/**
+            benchmarks/personal/**
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mixpass-benchmark-summary
+          path: |
+            artifacts/mixpass_validation/benchmark_smoke.md
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: metalcore-engine-validation
+          path: |
+            artifacts/metalcore_engine_validation/**
+            artifacts/metalcore_engine_validation/blind_test/**
+          if-no-files-found: warn
+
+  ml-research:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ml/pyproject.toml
+      - run: python -m pip install ./ml
+      - run: python -m unittest discover -s ml/tests -v
+
+  windows-products:
+    runs-on: windows-2022
+    needs: [ui, core, ml-research]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Install WebView2 SDK
+        shell: pwsh
+        run: nuget install Microsoft.Web.WebView2 -OutputDirectory "$env:RUNNER_TEMP\webview2" -NonInteractive
+      - name: Configure products
+        shell: bash
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 \
+            -DJUCE_WEBVIEW2_PACKAGE_LOCATION="$RUNNER_TEMP/webview2" \
+            -DMASTERING_AUDIO_BUILD_PRODUCTS=ON \
+            -DMASTERING_AUDIO_BUILD_TESTS=ON
+      - name: Build and test
+        shell: bash
+        run: |
+          cmake --build build --config Release --parallel
+          ctest --test-dir build -C Release --output-on-failure
+          mkdir -p artifacts/dsp_validation artifacts/dynamic_processing_validation artifacts/mix_node_validation artifacts/mixpass_validation artifacts/metalcore_engine_validation
+          TOOL=$(find build -type f \( -name 'dsp_validation_render.exe' -o -name 'dsp_validation_render' \) | head -n 1)
+          if [[ -z "$TOOL" ]]; then
+            echo "dsp_validation_render not found" >&2
+            exit 1
+          fi
+          "$TOOL" artifacts/dsp_validation
+          DYN=$(find build -type f \( -name 'dynamic_processing_validation.exe' -o -name 'dynamic_processing_validation' \) | head -n 1)
+          if [[ -z "$DYN" ]]; then
+            echo "dynamic_processing_validation not found" >&2
+            exit 1
+          fi
+          "$DYN" artifacts/dynamic_processing_validation
+          MIX=$(find build -type f \( -name 'mix_node_validation.exe' -o -name 'mix_node_validation' \) | head -n 1)
+          if [[ -z "$MIX" ]]; then
+            echo "mix_node_validation not found" >&2
+            exit 1
+          fi
+          "$MIX" artifacts/mix_node_validation
+          MP=$(find build -type f \( -name 'mixpass_validation.exe' -o -name 'mixpass_validation' \) | head -n 1)
+          if [[ -z "$MP" ]]; then
+            echo "mixpass_validation not found" >&2
+            exit 1
+          fi
+          "$MP" artifacts/mixpass_validation benchmarks/personal
+          M3B=$(find build -type f \( -name 'metalcore_engine_validation.exe' -o -name 'metalcore_engine_validation' \) | head -n 1)
+          if [[ -z "$M3B" ]]; then
+            echo "metalcore_engine_validation not found" >&2
+            exit 1
+          fi
+          "$M3B" artifacts/metalcore_engine_validation
+          TESTBIN=$(find build -type f -name 'mastering_audio_tests.exe' | head -n 1)
+          "$TESTBIN" "[milestone2a]" --reporter compact
+          "$TESTBIN" "[milestone3a]" --reporter compact
+          "$TESTBIN" "[milestone3b]" --reporter compact
+          "$TESTBIN" "[milestone3c]" --reporter compact
+          "$TESTBIN" "[milestone4a]" --reporter compact
+      - name: Package
+        shell: pwsh
+        run: ./scripts/package-windows.ps1 -BuildDir build -OutDir dist/windows -Config Release
+      - name: Try Inno Setup installer
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          $stage = (Resolve-Path "dist/windows/MasteringAudioSuite").Path
+          $out = (Resolve-Path "dist/windows").Path
+          if (Test-Path $iscc) {
+            & $iscc /O"$out" /DSourceDir="$stage" /DOutDir="$out" scripts/windows-installer.iss
+            if ($LASTEXITCODE -ne 0) {
+              Write-Warning "ISCC failed with $LASTEXITCODE"
+              exit 0
+            }
+            Get-ChildItem $out -Filter "MasteringAudioSuite-Setup-x64.exe"
+          } else {
+            Write-Host "ISCC not found after choco install"
+          }
+        continue-on-error: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mastering-audio-suite-windows
+          path: |
+            dist/windows/MasteringAudioSuite-windows-x64.zip
+            dist/windows/MasteringAudioSuite-Portable-x64.zip
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mastering-audio-mix-node-vst3
+          path: |
+            build/MasteringAudioMixNode_artefacts/Release/VST3/Mastering Audio Mix Node.vst3
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mastering-audio-suite-installer
+          path: |
+            dist/windows/MasteringAudioSuite-Setup-x64.exe
+            dist/windows/installer/**
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mix-node-validation-windows
+          path: |
+            artifacts/mix_node_validation/**
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mix-node-benchmark-summary-windows
+          path: |
+            artifacts/mix_node_validation/benchmark_smoke.md
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mixpass-validation-windows
+          path: |
+            artifacts/mixpass_validation/**
+            benchmarks/personal/**
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mixpass-benchmark-summary-windows
+          path: |
+            artifacts/mixpass_validation/benchmark_smoke.md
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: metalcore-engine-validation-windows
+          path: |
+            artifacts/metalcore_engine_validation/**
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: metering-compliance-artifacts-windows
+          path: |
+            testdata/official/metering-official-validation.json
+            testdata/official/metering-official-validation.md
+            build/metering-validation.json
+            build/metering-validation.md
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dsp-validation-artifacts-windows
+          path: |
+            artifacts/dsp_validation/**
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dsp-benchmark-summary-windows
+          path: |
+            artifacts/dsp_validation/benchmark_smoke.md
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dynamic-processing-validation-windows
+          path: |
+            artifacts/dynamic_processing_validation/**
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dynamic-processing-benchmark-summary-windows
+          path: |
+            artifacts/dynamic_processing_validation/benchmark_smoke.md
+          if-no-files-found: warn
