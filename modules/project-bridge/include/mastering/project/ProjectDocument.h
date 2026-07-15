@@ -12,7 +12,7 @@
 
 namespace mastering::project {
 
-inline constexpr int kCurrentSchemaVersion = 3;
+inline constexpr int kCurrentSchemaVersion = 4;
 inline constexpr int kMinSupportedSchemaVersion = 1;
 
 enum class TrackRole {
@@ -62,6 +62,8 @@ struct TrackRecord {
     dsp::ProcessorSettings processing;
     dsp::DynamicEqState dynamicEq {};
     bool dynamicEqEnabled {false};
+    bool vocalRiderEnabled {false};
+    double vocalRiderTargetDb {-18.0};
     double gainDb {0.0};
     double pan {0.0};
     bool muted {false};
@@ -109,23 +111,39 @@ struct MixPassAction {
     std::string targetTrackId;
     std::string targetPairId;
     std::string targetBusId;
-    std::string processorId;  // gain|staticEq|dynamicEq|fdSidechain|compressor|saturation|outputGain
+    std::string processorId;  // gain|staticEq|dynamicEq|fdSidechain|compressor|compressorPeak|saturation|vocalRider|outputGain
     std::string parameterId;
     double currentValue {0.0};
     double proposedValue {0.0};
     double allowedMin {-24.0};
     double allowedMax {24.0};
-    double confidence {0.0};
+    double globalCap {24.0};
+    double roleCap {12.0};
+    double confidenceAdjustedCap {12.0};
+    double cumulativeCap {12.0};
+    double confidence {0.0}; // legacy field; prefer evidenceScore
+    double evidenceScore {0.0}; // 0..1 deterministic evidence, NOT calibrated probability
+    std::string evidenceLabel {"low"}; // low|medium|high
     std::string explanation;
     std::string sourceMetrics;
+    std::string evidence;
+    std::string decisionTrace;
+    std::string processingLevel {"track"}; // track|track-left|track-right|pair|bus|music-bus|master|none
     std::string sectionScope {"full"};
     std::string state {"pending"}; // pending|previewing|applied|rejected|cancelled|superseded|edited
     std::string origin {"mixpass"};
+    int priority {50};
+    int orderIndex {0};
+    std::string conflictGroup;
+    std::string supersedes;
+    std::string prerequisite;
 
     dsp::ProcessorSettings proposedProcessing {};
     dsp::DynamicEqState proposedDynamicEq {};
     bool hasProposedDynamicEq {false};
     bool hasProposedProcessing {false};
+    bool vocalRiderEnabled {false};
+    double vocalRiderTargetDb {-18.0};
 
     double previousGainDb {0.0};
     dsp::ProcessorSettings previousProcessing {};
@@ -166,6 +184,8 @@ struct ProjectDocument {
     bool masterDynamicEqEnabled {false};
     std::vector<AppliedAction> actions; // legacy + thin index
     std::string selectedVariant {"balanced"};
+    // M3B section automation lanes (relative offsets).
+    std::string sectionAutomationJson; // serialized SectionAutomationState
 };
 
 struct DeserializeError {

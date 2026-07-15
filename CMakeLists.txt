@@ -33,6 +33,10 @@ add_library(mastering_audio_core STATIC
     modules/dsp/src/MixNodeChain.cpp
     modules/assistant/src/MixAdvisor.cpp
     modules/assistant/src/MetalcoreMixPass.cpp
+    modules/assistant/src/MetalcoreAnalysis.cpp
+    modules/assistant/src/ActionResolver.cpp
+    modules/assistant/src/SectionAutomation.cpp
+    modules/dsp/src/VocalRider.cpp
     modules/project-bridge/src/ProjectDocument.cpp
     modules/research-export/src/ResearchExample.cpp
     modules/ipc/src/BridgeProtocol.cpp

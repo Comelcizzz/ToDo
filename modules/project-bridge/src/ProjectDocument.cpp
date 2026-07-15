@@ -437,6 +437,7 @@ std::string serialize(const ProjectDocument& project)
         {"selectedVariant", project.selectedVariant},
         {"masterProcessing", processingToJson(project.masterProcessing)},
         {"masterDynamicEqEnabled", project.masterDynamicEqEnabled},
+        {"sectionAutomationJson", project.sectionAutomationJson},
         {"tracks", json::array()},
         {"pairs", json::array()},
         {"buses", json::array()},
@@ -454,6 +455,8 @@ std::string serialize(const ProjectDocument& project)
             {"processing", processingToJson(track.processing)},
             {"dynamicEq", dynamicEqToJson(track.dynamicEq)},
             {"dynamicEqEnabled", track.dynamicEqEnabled},
+            {"vocalRiderEnabled", track.vocalRiderEnabled},
+            {"vocalRiderTargetDb", track.vocalRiderTargetDb},
             {"gainDb", track.gainDb},
             {"pan", track.pan},
             {"muted", track.muted},
@@ -510,14 +513,30 @@ std::string serialize(const ProjectDocument& project)
             {"proposedValue", action.proposedValue},
             {"allowedMin", action.allowedMin},
             {"allowedMax", action.allowedMax},
+            {"globalCap", action.globalCap},
+            {"roleCap", action.roleCap},
+            {"confidenceAdjustedCap", action.confidenceAdjustedCap},
+            {"cumulativeCap", action.cumulativeCap},
             {"confidence", action.confidence},
+            {"evidenceScore", action.evidenceScore},
+            {"evidenceLabel", action.evidenceLabel},
             {"explanation", action.explanation},
             {"sourceMetrics", action.sourceMetrics},
+            {"evidence", action.evidence},
+            {"decisionTrace", action.decisionTrace},
+            {"processingLevel", action.processingLevel},
             {"sectionScope", action.sectionScope},
             {"state", action.state},
             {"origin", action.origin},
+            {"priority", action.priority},
+            {"orderIndex", action.orderIndex},
+            {"conflictGroup", action.conflictGroup},
+            {"supersedes", action.supersedes},
+            {"prerequisite", action.prerequisite},
             {"hasProposedProcessing", action.hasProposedProcessing},
             {"hasProposedDynamicEq", action.hasProposedDynamicEq},
+            {"vocalRiderEnabled", action.vocalRiderEnabled},
+            {"vocalRiderTargetDb", action.vocalRiderTargetDb},
             {"hasPrevious", action.hasPrevious},
             {"previousDynamicEqEnabled", action.previousDynamicEqEnabled}
         };
@@ -571,6 +590,7 @@ std::optional<ProjectDocument> deserialize(std::string_view source, DeserializeE
         read(value, "sampleRate", project.sampleRate);
         read(value, "bpm", project.bpm);
         read(value, "selectedVariant", project.selectedVariant);
+        read(value, "sectionAutomationJson", project.sectionAutomationJson);
 
         if (project.schemaVersion < kMinSupportedSchemaVersion) {
             error.message = "Project schemaVersion is too old and unsupported";
@@ -609,6 +629,8 @@ std::optional<ProjectDocument> deserialize(std::string_view source, DeserializeE
                 read(trackValue, "parentBusId", track.parentBusId);
                 read(trackValue, "channelPosition", track.channelPosition);
                 read(trackValue, "dynamicEqEnabled", track.dynamicEqEnabled);
+                read(trackValue, "vocalRiderEnabled", track.vocalRiderEnabled);
+                read(trackValue, "vocalRiderTargetDb", track.vocalRiderTargetDb);
                 if (const auto role = roleFromString(trackValue.value("role", "custom")))
                     track.role = *role;
                 if (const auto metrics = trackValue.find("metrics"); metrics != trackValue.end())
@@ -697,14 +719,30 @@ std::optional<ProjectDocument> deserialize(std::string_view source, DeserializeE
                 read(actionValue, "proposedValue", action.proposedValue);
                 read(actionValue, "allowedMin", action.allowedMin);
                 read(actionValue, "allowedMax", action.allowedMax);
+                read(actionValue, "globalCap", action.globalCap);
+                read(actionValue, "roleCap", action.roleCap);
+                read(actionValue, "confidenceAdjustedCap", action.confidenceAdjustedCap);
+                read(actionValue, "cumulativeCap", action.cumulativeCap);
                 read(actionValue, "confidence", action.confidence);
+                read(actionValue, "evidenceScore", action.evidenceScore);
+                read(actionValue, "evidenceLabel", action.evidenceLabel);
                 read(actionValue, "explanation", action.explanation);
                 read(actionValue, "sourceMetrics", action.sourceMetrics);
+                read(actionValue, "evidence", action.evidence);
+                read(actionValue, "decisionTrace", action.decisionTrace);
+                read(actionValue, "processingLevel", action.processingLevel);
                 read(actionValue, "sectionScope", action.sectionScope);
                 read(actionValue, "state", action.state);
                 read(actionValue, "origin", action.origin);
+                read(actionValue, "priority", action.priority);
+                read(actionValue, "orderIndex", action.orderIndex);
+                read(actionValue, "conflictGroup", action.conflictGroup);
+                read(actionValue, "supersedes", action.supersedes);
+                read(actionValue, "prerequisite", action.prerequisite);
                 read(actionValue, "hasProposedProcessing", action.hasProposedProcessing);
                 read(actionValue, "hasProposedDynamicEq", action.hasProposedDynamicEq);
+                read(actionValue, "vocalRiderEnabled", action.vocalRiderEnabled);
+                read(actionValue, "vocalRiderTargetDb", action.vocalRiderTargetDb);
                 read(actionValue, "hasPrevious", action.hasPrevious);
                 read(actionValue, "previousGainDb", action.previousGainDb);
                 read(actionValue, "previousDynamicEqEnabled", action.previousDynamicEqEnabled);
