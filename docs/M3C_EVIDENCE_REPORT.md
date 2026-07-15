@@ -2,14 +2,14 @@
 
 ## S. Gate decision
 
-**MILESTONE 3C REMAINS PARTIAL** — local automated validation + verification hardenings pass; final Linux/Windows CI evidence on verification tip is required for acceptance.
+**MILESTONE 3C ACCEPTED** — verification hardenings + Linux/Windows CI green on tip `fe82d2b` (run https://github.com/Comelcizzz/ToDo/actions/runs/29437233765).
 
-See `docs/M3C_FINAL_VERIFICATION.md` for the A–N verification dossier.
+See `docs/M3C_FINAL_VERIFICATION.md` and `docs/M3C_CI_ARTIFACT_MANIFEST.json`.
 
 Mandatory limitations (honest):
 - Synthetic validation is **not** proof of professional musical quality or mix taste.
 - FL Studio manual validation remains **NOT MANUALLY VERIFIED IN FL STUDIO**.
-- Installer manual validation remains **NOT MANUALLY VERIFIED**.
+- Installer manual validation remains **NOT MANUALLY VERIFIED** (Setup.exe was built in CI).
 - No ML Lab / production ML / arrangement editing / “universal perfect mix” claim.
 - Blind A/B/C package is a packaging/listening aid on synthetic (or supplied) renders — not a quality certificate.
 - Practical analysis duration cap is **30 minutes** per stem (`kMaxAnalysisSeconds`); longer material is truncated with explicit warnings + evidence penalty.
@@ -156,7 +156,7 @@ This report intentionally makes **no** claim that AUTO sounds “better” than 
 | 30-min truncation reporting | PASS |
 | `metalcore_engine_validation` 90 s | PASS |
 | Blind package + answer key + render_identity | PASS |
-| Linux + Windows CI green on verification tip | **PENDING** |
+| Linux + Windows CI green on verification tip | **PASS** (`fe82d2b` / run 29437233765) |
 | Musical quality / FL / installer / ML | N/A or postponed |
 
-**Gate:** **MILESTONE 3C REMAINS PARTIAL** until tip CI green — see `docs/M3C_FINAL_VERIFICATION.md`.
+**Gate:** **MILESTONE 3C ACCEPTED** — see `docs/M3C_FINAL_VERIFICATION.md`.

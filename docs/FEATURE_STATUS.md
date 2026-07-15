@@ -111,11 +111,11 @@ Dynamic EQ + FD sidechain + detector: **IMPLEMENTED**. **M1C ACCEPTED**.
 | StemEngine parallel/width + LUFS A/B | **IMPLEMENTED** | compareMatchGainDb_ monitor makeup |
 | Project schema v5 | **IMPLEMENTED** | parallel/width + budget/identity/truncation fields |
 | Musical quality | **NOT CLAIMED** | synthetic ≠ mix proof |
-| Final Linux/Windows CI gate | **PENDING** | see `docs/M3C_FINAL_VERIFICATION.md` |
+| Final Linux/Windows CI gate | **ACCEPTED** | tip `fe82d2b` run `29437233765` green |
 | ML Lab | **MISSING** | not started |
 | FL / installer manual | **NOT VERIFIED** | postponed |
 
-**Gate:** `MILESTONE 3C REMAINS PARTIAL` until tip CI green — `docs/M3C_FINAL_VERIFICATION.md`.
+**Gate:** **MILESTONE 3C ACCEPTED** — `docs/M3C_FINAL_VERIFICATION.md` (CI tip `fe82d2b`, run `29437233765`).
 
 ## Manual validation checklist
 
