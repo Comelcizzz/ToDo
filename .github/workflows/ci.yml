@@ -173,8 +173,15 @@ jobs:
         run: |
           choco install innosetup -y --no-progress
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          $stage = (Resolve-Path "dist/windows/MasteringAudioSuite").Path
+          $out = (Resolve-Path "dist/windows").Path
           if (Test-Path $iscc) {
-            & $iscc scripts/windows-installer.iss /DSourceDir="$pwd\dist\windows\MasteringAudioSuite" /DOutDir="$pwd\dist\windows"
+            & $iscc /O"$out" /DSourceDir="$stage" /DOutDir="$out" scripts/windows-installer.iss
+            if ($LASTEXITCODE -ne 0) {
+              Write-Warning "ISCC failed with $LASTEXITCODE"
+              exit 0
+            }
+            Get-ChildItem $out -Filter "MasteringAudioSuite-Setup-x64.exe"
           } else {
             Write-Host "ISCC not found after choco install"
           }

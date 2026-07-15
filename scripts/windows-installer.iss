@@ -2,10 +2,10 @@
 ; UNSIGNED. Do not call verified without manual Windows install test.
 
 #ifndef SourceDir
-  #define SourceDir "..\dist\windows\MasteringAudioSuite"
+  #define SourceDir "dist\\windows\\MasteringAudioSuite"
 #endif
 #ifndef OutDir
-  #define OutDir "..\dist\windows"
+  #define OutDir "dist\\windows"
 #endif
 
 #define MyAppName "Mastering Audio Suite"
