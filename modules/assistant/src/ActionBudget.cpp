@@ -22,15 +22,17 @@ bool isDynEq(const project::MixPassAction& a) noexcept
 
 bool isEqCut(const project::MixPassAction& a) noexcept
 {
+    if (a.hasProposedDynamicEq) {
+        const int n = std::clamp(a.proposedDynamicEq.bandCount, 0, 4);
+        for (int i = 0; i < n; ++i) {
+            if (a.proposedDynamicEq.bands[static_cast<std::size_t>(i)].enabled
+                && a.proposedDynamicEq.bands[static_cast<std::size_t>(i)].maxCutDb > 0.0)
+                return true;
+        }
+    }
     if (a.processorId == "staticEq" || a.processorId == "dynamicEq") {
         const double delta = a.proposedValue - a.currentValue;
         return delta < 0.0;
-    }
-    if (a.hasProposedDynamicEq) {
-        for (const auto& band : a.proposedDynamicEq.bands) {
-            if (band.enabled && band.maxCutDb > 0.0)
-                return true;
-        }
     }
     return false;
 }
@@ -39,7 +41,9 @@ double eqCutAmount(const project::MixPassAction& a) noexcept
 {
     if (a.hasProposedDynamicEq) {
         double sum = 0.0;
-        for (const auto& band : a.proposedDynamicEq.bands) {
+        const int n = std::clamp(a.proposedDynamicEq.bandCount, 0, 4);
+        for (int i = 0; i < n; ++i) {
+            const auto& band = a.proposedDynamicEq.bands[static_cast<std::size_t>(i)];
             if (band.enabled)
                 sum += std::abs(band.maxCutDb);
         }
@@ -58,9 +62,9 @@ double gainChangeAmount(const project::MixPassAction& a) noexcept
 
 bool isUnmask(const project::MixPassAction& a) noexcept
 {
+    // Vocal/snare guitar unmask neighborhood only — kickBassMasking uses EQ-cut budget.
     return a.problemType.find("Unmask") != std::string::npos
-        || a.problemType.find("unmask") != std::string::npos
-        || a.problemType.find("Masking") != std::string::npos;
+        || a.problemType.find("unmask") != std::string::npos;
 }
 
 std::string trackKey(const project::MixPassAction& a)
@@ -175,6 +179,12 @@ std::vector<project::MixPassAction> applyBudget(
             sectionPerTrack[key] += std::abs(action.proposedValue - action.currentValue);
 
         kept.push_back(std::move(action));
+    }
+
+    // Preserve rejected actions (with state=rejected) for UI / decision traces.
+    for (auto& action : actions) {
+        if (action.state == "rejected")
+            kept.push_back(std::move(action));
     }
 
     return kept;

@@ -12,7 +12,7 @@
 
 namespace mastering::project {
 
-inline constexpr int kCurrentSchemaVersion = 4;
+inline constexpr int kCurrentSchemaVersion = 5;
 inline constexpr int kMinSupportedSchemaVersion = 1;
 
 enum class TrackRole {
@@ -72,6 +72,18 @@ struct TrackRecord {
     std::string pairId;
     std::string parentBusId;
     std::string channelPosition {"Stereo"}; // Mono|L|R|C|Stereo
+    // M3C parallel compressor / stereo width (POD mirrors of DSP state).
+    bool parallelEnabled {false};
+    double parallelWet {0.0};
+    double parallelThresholdDb {-18.0};
+    double parallelRatio {4.0};
+    double parallelAttackMs {10.0};
+    double parallelReleaseMs {100.0};
+    double parallelMakeupDb {0.0};
+    bool stereoWidthEnabled {false};
+    double sideGainDb {0.0};
+    double midGainDb {0.0};
+    double lowBandMonoHz {120.0};
 };
 
 struct PairRecord {
@@ -81,6 +93,10 @@ struct PairRecord {
     std::string rightTrackId;
     std::string parentBusId;
     bool linkedProcessing {true};
+    bool stereoWidthEnabled {false};
+    double sideGainDb {0.0};
+    double midGainDb {0.0};
+    double lowBandMonoHz {120.0};
 };
 
 struct BusRecord {
@@ -93,6 +109,19 @@ struct BusRecord {
     dsp::DynamicEqState dynamicEq {};
     bool dynamicEqEnabled {false};
     double gainDb {0.0};
+    // M3C parallel drum / stereo width bus state.
+    bool parallelEnabled {false};
+    double parallelWet {0.0};
+    double parallelThresholdDb {-18.0};
+    double parallelRatio {4.0};
+    double parallelAttackMs {10.0};
+    double parallelReleaseMs {100.0};
+    double parallelMakeupDb {0.0};
+    std::string parallelDrumJson; // optional extra parallel drum state blob
+    bool stereoWidthEnabled {false};
+    double sideGainDb {0.0};
+    double midGainDb {0.0};
+    double lowBandMonoHz {120.0};
 };
 
 struct SectionMarker {
@@ -186,6 +215,11 @@ struct ProjectDocument {
     std::string selectedVariant {"balanced"};
     // M3B section automation lanes (relative offsets).
     std::string sectionAutomationJson; // serialized SectionAutomationState
+    // M3C extensions.
+    bool virtualDrumBusEnabled {false};
+    std::string actionBudgetJson;
+    int analysisCacheVersion {0};
+    std::string renderIdentityJson;
 };
 
 struct DeserializeError {

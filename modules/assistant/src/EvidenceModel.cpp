@@ -35,7 +35,8 @@ double processorGlobalCap(const std::string& processorId) noexcept
         return 8.0;
     if (processorId == "staticEq")
         return 6.0;
-    if (processorId == "compressor" || processorId == "compressorPeak" || processorId == "parallel")
+    if (processorId == "compressor" || processorId == "compressorPeak" || processorId == "parallel"
+        || processorId == "parallelCompressor")
         return 8.0;
     if (processorId == "saturation" || processorId == "clipper")
         return 6.0;

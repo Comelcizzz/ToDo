@@ -1,5 +1,4 @@
 #include "mix-desktop/StemEngine.h"
-#include "mastering/dsp/DynamicEq.h"
 #include "mastering/dsp/ExportQc.h"
 #include "mastering/dsp/MasterSafetyChain.h"
 #include "mastering/dsp/VocalRider.h"
@@ -18,6 +17,8 @@ struct StemEngine::PlaybackTrack {
     dsp::ProcessorChain processor;
     dsp::DynamicEqProcessor dynamicEq;
     dsp::VocalRider vocalRider;
+    dsp::ParallelCompressor parallelCompressor;
+    dsp::StereoWidth stereoWidth;
     juce::AudioBuffer<float> scratch;
 };
 
@@ -56,6 +57,9 @@ void StemEngine::prepareToPlay(int samplesPerBlockExpected, double sampleRate)
         track->processor.prepare(sampleRate, 2);
         track->dynamicEq.prepare(sampleRate, samplesPerBlockExpected, 2);
         track->vocalRider.prepare(sampleRate);
+        track->parallelCompressor.prepare(sampleRate, samplesPerBlockExpected, 2);
+        track->stereoWidth.prepare(sampleRate, samplesPerBlockExpected);
+        syncParallelStereoFromRecord(*track);
         if (track->record.dynamicEqEnabled)
             track->dynamicEq.setState(track->record.dynamicEq);
         if (track->record.vocalRiderEnabled) {
@@ -130,11 +134,20 @@ void StemEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToF
             track->scratch.getWritePointer(0),
             track->scratch.getWritePointer(1)
         };
-        // RAW compare: dry stems only (no processor / DynEQ / rider).
+        // RAW compare: dry stems only (no processor / DynEQ / rider / parallel / width).
         if (compareMode_ != CompareMode::raw) {
+            const auto t = track->transport.getCurrentPosition();
+            applySectionParameterAutomation(*track, t);
             track->processor.process(trackChannels, 2, bufferToFill.numSamples);
             if (track->record.vocalRiderEnabled)
                 track->vocalRider.process(trackChannels, 2, bufferToFill.numSamples);
+            if (track->record.parallelEnabled
+                || track->record.role == project::TrackRole::drumBus) {
+                track->parallelCompressor.process(trackChannels, 2, bufferToFill.numSamples);
+            }
+            if (track->record.stereoWidthEnabled) {
+                track->stereoWidth.process(trackChannels, 2, bufferToFill.numSamples);
+            }
         }
 
         if (track->record.role == project::TrackRole::kick)
@@ -245,6 +258,16 @@ void StemEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToF
         masterChain_.process(outputChannels.data(), channelCount, bufferToFill.numSamples);
         masterSafety_.process(outputChannels.data(), channelCount, bufferToFill.numSamples);
     }
+
+    // Loudness-match makeup for A/B compare (after creative limiter / safety).
+    if (compareMode_ != CompareMode::reference
+        && std::abs(compareMatchGainDb_) > 1.0e-6) {
+        const auto matchGain = static_cast<float>(dsp::dbToGain(compareMatchGainDb_));
+        bufferToFill.buffer->applyGain(
+            bufferToFill.startSample,
+            bufferToFill.numSamples,
+            matchGain);
+    }
 }
 
 std::vector<project::TrackRecord> StemEngine::importFiles(
@@ -322,6 +345,7 @@ void StemEngine::updateTrack(const project::TrackRecord& record)
     if (iterator != tracks_.end()) {
         (*iterator)->record = record;
         (*iterator)->processor.setSettings(record.processing);
+        syncParallelStereoFromRecord(**iterator);
         if (record.dynamicEqEnabled)
             (*iterator)->dynamicEq.setState(record.dynamicEq);
         if (record.vocalRiderEnabled) {
@@ -356,6 +380,16 @@ void StemEngine::applyMixPassAction(const project::MixPassAction& action)
         track.record.vocalRiderTargetDb = action.vocalRiderTargetDb;
         track.vocalRider.setTargetRmsDb(action.vocalRiderTargetDb);
         track.vocalRider.setSmoothingMs(180.0);
+    }
+    if (action.processorId == "parallelCompressor" || action.processorId == "parallel") {
+        track.record.parallelEnabled = true;
+        track.record.parallelWet = std::clamp(action.proposedValue, 0.0, 1.0);
+        syncParallelStereoFromRecord(track);
+    }
+    if (action.processorId == "stereoWidth" || action.processorId == "stereo") {
+        track.record.stereoWidthEnabled = true;
+        track.record.sideGainDb = action.proposedValue;
+        syncParallelStereoFromRecord(track);
     }
 }
 
@@ -432,6 +466,7 @@ void StemEngine::setCompareMode(CompareMode mode)
     compareMode_ = mode;
     monitorSource_ = mode == CompareMode::reference ? MonitorSource::reference
                                                     : MonitorSource::mix;
+    recalculateCompareMatchGain();
 }
 
 StemEngine::CompareMode StemEngine::compareMode() const
@@ -447,6 +482,55 @@ bool StemEngine::hasReference() const
 double StemEngine::referenceGainDb() const
 {
     return referenceGainDb_;
+}
+
+double StemEngine::compareMatchGainDb() const
+{
+    return compareMatchGainDb_;
+}
+
+int StemEngine::modeIndex(CompareMode mode) noexcept
+{
+    switch (mode) {
+    case CompareMode::raw: return 0;
+    case CompareMode::autoProcessed: return 1;
+    case CompareMode::current: return 2;
+    case CompareMode::reference: return 3;
+    }
+    return 2;
+}
+
+void StemEngine::setModeIntegratedLufs(CompareMode mode, double integratedLufs)
+{
+    const juce::ScopedLock guard(lock_);
+    const auto idx = modeIndex(mode);
+    modeLufs_[static_cast<std::size_t>(idx)] = integratedLufs;
+    modeLufsValid_[static_cast<std::size_t>(idx)] = true;
+    recalculateCompareMatchGain();
+}
+
+void StemEngine::recalculateCompareMatchGain()
+{
+    // Match active compare mode loudness toward CURRENT baseline for fair A/B.
+    // Applied at monitor output after creative limiter — not through Mix Pass DSP.
+    compareMatchGainDb_ = 0.0;
+    if (compareMode_ == CompareMode::current || compareMode_ == CompareMode::reference)
+        return;
+
+    const auto currentIdx = modeIndex(CompareMode::current);
+    const auto activeIdx = modeIndex(compareMode_);
+    double currentLufs = mixIntegratedLufs_;
+    double activeLufs = mixIntegratedLufs_;
+    if (modeLufsValid_[static_cast<std::size_t>(currentIdx)])
+        currentLufs = modeLufs_[static_cast<std::size_t>(currentIdx)];
+    if (modeLufsValid_[static_cast<std::size_t>(activeIdx)])
+        activeLufs = modeLufs_[static_cast<std::size_t>(activeIdx)];
+    else if (compareMode_ == CompareMode::raw) {
+        // Approximate dry programme as slightly quieter than processed mix.
+        activeLufs = mixIntegratedLufs_ - 1.5;
+    }
+
+    compareMatchGainDb_ = std::clamp(currentLufs - activeLufs, -12.0, 12.0);
 }
 
 void StemEngine::togglePlayback()
@@ -532,6 +616,8 @@ bool StemEngine::renderMaster(
         dsp::ProcessorChain processor;
         dsp::DynamicEqProcessor dynamicEq;
         dsp::VocalRider vocalRider;
+        dsp::ParallelCompressor parallelCompressor;
+        dsp::StereoWidth stereoWidth;
         juce::AudioBuffer<float> scratch;
     };
     std::vector<RenderTrack> renderTracks;
@@ -558,6 +644,27 @@ bool StemEngine::renderMaster(
         renderTrack.processor.setSettings(track.processing);
         renderTrack.dynamicEq.prepare(project.sampleRate, 2'048, 2);
         renderTrack.vocalRider.prepare(project.sampleRate);
+        renderTrack.parallelCompressor.prepare(project.sampleRate, 2'048, 2);
+        renderTrack.stereoWidth.prepare(project.sampleRate, 2'048);
+        {
+            dsp::ParallelCompressorState ps;
+            ps.wetAmount = track.parallelWet;
+            ps.thresholdDb = track.parallelThresholdDb;
+            ps.ratio = track.parallelRatio;
+            ps.attackMs = track.parallelAttackMs;
+            ps.releaseMs = track.parallelReleaseMs;
+            ps.makeupDb = track.parallelMakeupDb;
+            ps.bypass = !(track.parallelEnabled || track.role == project::TrackRole::drumBus);
+            renderTrack.parallelCompressor.setState(ps);
+        }
+        {
+            dsp::StereoWidthState ws;
+            ws.sideGainDb = track.sideGainDb;
+            ws.midGainDb = track.midGainDb;
+            ws.lowBandMonoHz = track.lowBandMonoHz;
+            ws.bypass = !track.stereoWidthEnabled;
+            renderTrack.stereoWidth.setState(ws);
+        }
         if (track.dynamicEqEnabled)
             renderTrack.dynamicEq.setState(track.dynamicEq);
         if (track.vocalRiderEnabled) {
@@ -620,6 +727,7 @@ bool StemEngine::renderMaster(
     for (juce::int64 position = 0; position < maximumLength; position += renderBlockSize) {
         const auto samples = static_cast<int>(
             std::min<juce::int64>(renderBlockSize, maximumLength - position));
+        const double timeSeconds = double(position) / project.sampleRate;
         mix.clear();
 
         RenderTrack* kick = nullptr;
@@ -635,9 +743,50 @@ bool StemEngine::renderMaster(
                 track.scratch.getWritePointer(1)
             };
             if (!dry) {
+                const double dynMaxCutOffset = assistant::SectionAutomation::evaluateParameterOffset(
+                    project, automation, track.record.id, "dynMaxCutDb", timeSeconds);
+                if (std::abs(dynMaxCutOffset) > 1.0e-9 && track.record.dynamicEqEnabled) {
+                    auto state = track.record.dynamicEq;
+                    state.bands[0].maxCutDb = std::clamp(
+                        track.record.dynamicEq.bands[0].maxCutDb + dynMaxCutOffset, 0.0, 24.0);
+                    track.dynamicEq.setState(state);
+                }
+                const double parallelWetOffset = assistant::SectionAutomation::evaluateParameterOffset(
+                    project, automation, track.record.id, "parallelWet", timeSeconds);
+                if (track.record.parallelEnabled
+                    || track.record.role == project::TrackRole::drumBus
+                    || std::abs(parallelWetOffset) > 1.0e-9) {
+                    dsp::ParallelCompressorState ps;
+                    ps.wetAmount = std::clamp(track.record.parallelWet + parallelWetOffset, 0.0, 1.0);
+                    ps.thresholdDb = track.record.parallelThresholdDb;
+                    ps.ratio = track.record.parallelRatio;
+                    ps.attackMs = track.record.parallelAttackMs;
+                    ps.releaseMs = track.record.parallelReleaseMs;
+                    ps.makeupDb = track.record.parallelMakeupDb;
+                    ps.bypass = !(track.record.parallelEnabled
+                        || track.record.role == project::TrackRole::drumBus);
+                    track.parallelCompressor.setState(ps);
+                }
+                const double widthOffset = assistant::SectionAutomation::evaluateParameterOffset(
+                    project, automation, track.record.id, "stereoWidth", timeSeconds);
+                if (track.record.stereoWidthEnabled || std::abs(widthOffset) > 1.0e-9) {
+                    dsp::StereoWidthState ws;
+                    ws.sideGainDb = track.record.sideGainDb + widthOffset;
+                    ws.midGainDb = track.record.midGainDb;
+                    ws.lowBandMonoHz = track.record.lowBandMonoHz;
+                    ws.bypass = !track.record.stereoWidthEnabled && std::abs(widthOffset) < 1.0e-9;
+                    track.stereoWidth.setState(ws);
+                }
+
                 track.processor.process(channels, 2, samples);
                 if (track.record.vocalRiderEnabled)
                     track.vocalRider.process(channels, 2, samples);
+                if (track.record.parallelEnabled
+                    || track.record.role == project::TrackRole::drumBus) {
+                    track.parallelCompressor.process(channels, 2, samples);
+                }
+                if (track.record.stereoWidthEnabled || std::abs(widthOffset) > 1.0e-9)
+                    track.stereoWidth.process(channels, 2, samples);
             }
             if (track.record.role == project::TrackRole::kick)
                 kick = &track;
@@ -692,7 +841,6 @@ bool StemEngine::renderMaster(
             }
         }
 
-        const double timeSeconds = double(position) / project.sampleRate;
         for (auto& track : renderTracks) {
             if (track.record.muted || (anySolo && !track.record.soloed))
                 continue;
@@ -783,6 +931,15 @@ bool StemEngine::renderMaster(
         return false;
     }
 
+    {
+        const juce::ScopedLock guard(lock_);
+        if (qc.integratedLufs > -70.0) {
+            modeLufs_[static_cast<std::size_t>(modeIndex(mode))] = qc.integratedLufs;
+            modeLufsValid_[static_cast<std::size_t>(modeIndex(mode))] = true;
+            recalculateCompareMatchGain();
+        }
+    }
+
     // Write compensated buffer.
     for (std::size_t offset = 0; offset < keep; offset += static_cast<std::size_t>(renderBlockSize)) {
         const auto samples = static_cast<int>(
@@ -819,6 +976,9 @@ std::unique_ptr<StemEngine::PlaybackTrack> StemEngine::createPlaybackTrack(
         track->processor.prepare(outputSampleRate_, 2);
         track->dynamicEq.prepare(outputSampleRate_, blockSize_, 2);
         track->vocalRider.prepare(outputSampleRate_);
+        track->parallelCompressor.prepare(outputSampleRate_, blockSize_, 2);
+        track->stereoWidth.prepare(outputSampleRate_, blockSize_);
+        syncParallelStereoFromRecord(*track);
         if (record.dynamicEqEnabled)
             track->dynamicEq.setState(record.dynamicEq);
         if (record.vocalRiderEnabled) {
@@ -828,6 +988,60 @@ std::unique_ptr<StemEngine::PlaybackTrack> StemEngine::createPlaybackTrack(
         track->scratch.setSize(2, blockSize_);
     }
     return track;
+}
+
+void StemEngine::syncParallelStereoFromRecord(PlaybackTrack& track)
+{
+    dsp::ParallelCompressorState ps;
+    ps.wetAmount = track.record.parallelWet;
+    ps.thresholdDb = track.record.parallelThresholdDb;
+    ps.ratio = track.record.parallelRatio;
+    ps.attackMs = track.record.parallelAttackMs;
+    ps.releaseMs = track.record.parallelReleaseMs;
+    ps.makeupDb = track.record.parallelMakeupDb;
+    ps.bypass = !(track.record.parallelEnabled
+        || track.record.role == project::TrackRole::drumBus);
+    track.parallelCompressor.setState(ps);
+
+    dsp::StereoWidthState ws;
+    ws.sideGainDb = track.record.sideGainDb;
+    ws.midGainDb = track.record.midGainDb;
+    ws.lowBandMonoHz = track.record.lowBandMonoHz > 0.0 ? track.record.lowBandMonoHz : 120.0;
+    ws.bypass = !track.record.stereoWidthEnabled;
+    track.stereoWidth.setState(ws);
+}
+
+void StemEngine::applySectionParameterAutomation(PlaybackTrack& track, double timeSeconds)
+{
+    const double dynMaxCutOffset = assistant::SectionAutomation::evaluateParameterOffset(
+        sectionProject_, sectionAutomation_, track.record.id, "dynMaxCutDb", timeSeconds);
+    if (track.record.dynamicEqEnabled && std::abs(dynMaxCutOffset) > 1.0e-9) {
+        auto state = track.record.dynamicEq;
+        state.bands[0].maxCutDb = std::clamp(
+            track.record.dynamicEq.bands[0].maxCutDb + dynMaxCutOffset, 0.0, 24.0);
+        track.dynamicEq.setState(state);
+    }
+
+    const double parallelWetOffset = assistant::SectionAutomation::evaluateParameterOffset(
+        sectionProject_, sectionAutomation_, track.record.id, "parallelWet", timeSeconds);
+    if (track.record.parallelEnabled
+        || track.record.role == project::TrackRole::drumBus
+        || std::abs(parallelWetOffset) > 1.0e-9) {
+        dsp::ParallelCompressorState ps = track.parallelCompressor.state();
+        ps.wetAmount = std::clamp(track.record.parallelWet + parallelWetOffset, 0.0, 1.0);
+        ps.bypass = !(track.record.parallelEnabled
+            || track.record.role == project::TrackRole::drumBus);
+        track.parallelCompressor.setState(ps);
+    }
+
+    const double widthOffset = assistant::SectionAutomation::evaluateParameterOffset(
+        sectionProject_, sectionAutomation_, track.record.id, "stereoWidth", timeSeconds);
+    if (track.record.stereoWidthEnabled || std::abs(widthOffset) > 1.0e-9) {
+        dsp::StereoWidthState ws = track.stereoWidth.state();
+        ws.sideGainDb = track.record.sideGainDb + widthOffset;
+        ws.bypass = !track.record.stereoWidthEnabled && std::abs(widthOffset) < 1.0e-9;
+        track.stereoWidth.setState(ws);
+    }
 }
 
 analysis::AudioMetrics StemEngine::analyzeFile(juce::AudioFormatReader& reader) const

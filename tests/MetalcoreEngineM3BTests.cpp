@@ -572,7 +572,7 @@ TEST_CASE("M3B SubOwnership decisionTrace is non-empty", "[milestone3b]")
     CHECK_FALSE(decision.decisionTrace.empty());
 }
 
-TEST_CASE("M3B save/reopen preserves mixPassActions orderIndex (schema v4)", "[milestone3b]")
+TEST_CASE("M3B save/reopen preserves mixPassActions orderIndex (schema v5)", "[milestone3b]")
 {
     auto project = baseProject();
     MetalcoreMixPass::ensureHierarchy(project);
@@ -589,7 +589,7 @@ TEST_CASE("M3B save/reopen preserves mixPassActions orderIndex (schema v4)", "[m
     const auto restored = mastering::project::deserialize(json);
     REQUIRE(restored.has_value());
     CHECK(restored->schemaVersion == mastering::project::kCurrentSchemaVersion);
-    CHECK(mastering::project::kCurrentSchemaVersion == 4);
+    CHECK(mastering::project::kCurrentSchemaVersion == 5);
     REQUIRE(restored->mixPassActions.size() == project.mixPassActions.size());
     for (std::size_t i = 0; i < restored->mixPassActions.size(); ++i) {
         CHECK(restored->mixPassActions[i].orderIndex == project.mixPassActions[i].orderIndex);

@@ -103,6 +103,7 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tests/MixNodeTests.cpp
         tests/MetalcoreMixPassTests.cpp
         tests/MetalcoreEngineM3BTests.cpp
+        tests/MetalcoreEngineM3CTests.cpp
     )
     target_link_libraries(mastering_audio_tests
         PRIVATE
@@ -134,6 +135,11 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tools/metalcore-engine-validation/main.cpp
     )
     target_link_libraries(metalcore_engine_validation PRIVATE mastering_audio_core)
+
+    add_executable(blind_test_package
+        tools/blind-test-package/main.cpp
+    )
+    target_link_libraries(blind_test_package PRIVATE mastering_audio_core)
 
     include(CTest)
     include(Catch)

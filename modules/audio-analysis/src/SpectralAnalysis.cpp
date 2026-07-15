@@ -96,21 +96,26 @@ std::vector<double> SpectralAnalysis::countOnsets(
     if (mono == nullptr || frames == 0 || sampleRate <= 0.0)
         return times;
 
+    // Fast attack / slower release envelope. Onset = sample rising above the
+    // current envelope by riseRatio (compare input to env *before* update),
+    // which works for impulsive kicks; consecutive-env ratios with a slow
+    // attack never reach typical riseRatio thresholds.
     double env = 0.0;
-    double prev = 0.0;
-    const double attack = std::exp(-1.0 / (sampleRate * 0.003));
+    const double attack = std::exp(-1.0 / (sampleRate * 0.0008));
     const double release = std::exp(-1.0 / (sampleRate * 0.050));
     double lastOnset = -1.0e9;
 
     for (std::size_t i = 0; i < frames; ++i) {
         const double x = std::abs(double(mono[i]));
-        env = x > env ? attack * env + (1.0 - attack) * x : release * env + (1.0 - release) * x;
         const double t = double(i) / sampleRate;
-        if (env > prev * riseRatio && env > floorLinear && (t - lastOnset) >= minSpacingSeconds) {
+        if (x > std::max(env * riseRatio, floorLinear)
+            && (t - lastOnset) >= minSpacingSeconds) {
             times.push_back(t);
             lastOnset = t;
         }
-        prev = env;
+        env = x > env
+            ? attack * env + (1.0 - attack) * x
+            : release * env + (1.0 - release) * x;
     }
     return times;
 }

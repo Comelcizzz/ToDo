@@ -438,6 +438,10 @@ std::string serialize(const ProjectDocument& project)
         {"masterProcessing", processingToJson(project.masterProcessing)},
         {"masterDynamicEqEnabled", project.masterDynamicEqEnabled},
         {"sectionAutomationJson", project.sectionAutomationJson},
+        {"virtualDrumBusEnabled", project.virtualDrumBusEnabled},
+        {"actionBudgetJson", project.actionBudgetJson},
+        {"analysisCacheVersion", project.analysisCacheVersion},
+        {"renderIdentityJson", project.renderIdentityJson},
         {"tracks", json::array()},
         {"pairs", json::array()},
         {"buses", json::array()},
@@ -464,7 +468,18 @@ std::string serialize(const ProjectDocument& project)
             {"polarityInverted", track.polarityInverted},
             {"pairId", track.pairId},
             {"parentBusId", track.parentBusId},
-            {"channelPosition", track.channelPosition}
+            {"channelPosition", track.channelPosition},
+            {"parallelEnabled", track.parallelEnabled},
+            {"parallelWet", track.parallelWet},
+            {"parallelThresholdDb", track.parallelThresholdDb},
+            {"parallelRatio", track.parallelRatio},
+            {"parallelAttackMs", track.parallelAttackMs},
+            {"parallelReleaseMs", track.parallelReleaseMs},
+            {"parallelMakeupDb", track.parallelMakeupDb},
+            {"stereoWidthEnabled", track.stereoWidthEnabled},
+            {"sideGainDb", track.sideGainDb},
+            {"midGainDb", track.midGainDb},
+            {"lowBandMonoHz", track.lowBandMonoHz}
         });
     }
     for (const auto& pair : project.pairs) {
@@ -474,7 +489,11 @@ std::string serialize(const ProjectDocument& project)
             {"leftTrackId", pair.leftTrackId},
             {"rightTrackId", pair.rightTrackId},
             {"parentBusId", pair.parentBusId},
-            {"linkedProcessing", pair.linkedProcessing}
+            {"linkedProcessing", pair.linkedProcessing},
+            {"stereoWidthEnabled", pair.stereoWidthEnabled},
+            {"sideGainDb", pair.sideGainDb},
+            {"midGainDb", pair.midGainDb},
+            {"lowBandMonoHz", pair.lowBandMonoHz}
         });
     }
     for (const auto& bus : project.buses) {
@@ -487,7 +506,19 @@ std::string serialize(const ProjectDocument& project)
             {"processing", processingToJson(bus.processing)},
             {"dynamicEq", dynamicEqToJson(bus.dynamicEq)},
             {"dynamicEqEnabled", bus.dynamicEqEnabled},
-            {"gainDb", bus.gainDb}
+            {"gainDb", bus.gainDb},
+            {"parallelEnabled", bus.parallelEnabled},
+            {"parallelWet", bus.parallelWet},
+            {"parallelThresholdDb", bus.parallelThresholdDb},
+            {"parallelRatio", bus.parallelRatio},
+            {"parallelAttackMs", bus.parallelAttackMs},
+            {"parallelReleaseMs", bus.parallelReleaseMs},
+            {"parallelMakeupDb", bus.parallelMakeupDb},
+            {"parallelDrumJson", bus.parallelDrumJson},
+            {"stereoWidthEnabled", bus.stereoWidthEnabled},
+            {"sideGainDb", bus.sideGainDb},
+            {"midGainDb", bus.midGainDb},
+            {"lowBandMonoHz", bus.lowBandMonoHz}
         });
     }
     for (const auto& section : project.sections) {
@@ -591,6 +622,10 @@ std::optional<ProjectDocument> deserialize(std::string_view source, DeserializeE
         read(value, "bpm", project.bpm);
         read(value, "selectedVariant", project.selectedVariant);
         read(value, "sectionAutomationJson", project.sectionAutomationJson);
+        read(value, "virtualDrumBusEnabled", project.virtualDrumBusEnabled);
+        read(value, "actionBudgetJson", project.actionBudgetJson);
+        read(value, "analysisCacheVersion", project.analysisCacheVersion);
+        read(value, "renderIdentityJson", project.renderIdentityJson);
 
         if (project.schemaVersion < kMinSupportedSchemaVersion) {
             error.message = "Project schemaVersion is too old and unsupported";
@@ -631,6 +666,17 @@ std::optional<ProjectDocument> deserialize(std::string_view source, DeserializeE
                 read(trackValue, "dynamicEqEnabled", track.dynamicEqEnabled);
                 read(trackValue, "vocalRiderEnabled", track.vocalRiderEnabled);
                 read(trackValue, "vocalRiderTargetDb", track.vocalRiderTargetDb);
+                read(trackValue, "parallelEnabled", track.parallelEnabled);
+                read(trackValue, "parallelWet", track.parallelWet);
+                read(trackValue, "parallelThresholdDb", track.parallelThresholdDb);
+                read(trackValue, "parallelRatio", track.parallelRatio);
+                read(trackValue, "parallelAttackMs", track.parallelAttackMs);
+                read(trackValue, "parallelReleaseMs", track.parallelReleaseMs);
+                read(trackValue, "parallelMakeupDb", track.parallelMakeupDb);
+                read(trackValue, "stereoWidthEnabled", track.stereoWidthEnabled);
+                read(trackValue, "sideGainDb", track.sideGainDb);
+                read(trackValue, "midGainDb", track.midGainDb);
+                read(trackValue, "lowBandMonoHz", track.lowBandMonoHz);
                 if (const auto role = roleFromString(trackValue.value("role", "custom")))
                     track.role = *role;
                 if (const auto metrics = trackValue.find("metrics"); metrics != trackValue.end())
@@ -657,6 +703,10 @@ std::optional<ProjectDocument> deserialize(std::string_view source, DeserializeE
                 read(pairValue, "rightTrackId", pair.rightTrackId);
                 read(pairValue, "parentBusId", pair.parentBusId);
                 read(pairValue, "linkedProcessing", pair.linkedProcessing);
+                read(pairValue, "stereoWidthEnabled", pair.stereoWidthEnabled);
+                read(pairValue, "sideGainDb", pair.sideGainDb);
+                read(pairValue, "midGainDb", pair.midGainDb);
+                read(pairValue, "lowBandMonoHz", pair.lowBandMonoHz);
                 if (pair.id.empty())
                     pair.id = makeProjectId();
                 project.pairs.push_back(std::move(pair));
@@ -671,6 +721,18 @@ std::optional<ProjectDocument> deserialize(std::string_view source, DeserializeE
                 read(busValue, "name", bus.name);
                 read(busValue, "gainDb", bus.gainDb);
                 read(busValue, "dynamicEqEnabled", bus.dynamicEqEnabled);
+                read(busValue, "parallelEnabled", bus.parallelEnabled);
+                read(busValue, "parallelWet", bus.parallelWet);
+                read(busValue, "parallelThresholdDb", bus.parallelThresholdDb);
+                read(busValue, "parallelRatio", bus.parallelRatio);
+                read(busValue, "parallelAttackMs", bus.parallelAttackMs);
+                read(busValue, "parallelReleaseMs", bus.parallelReleaseMs);
+                read(busValue, "parallelMakeupDb", bus.parallelMakeupDb);
+                read(busValue, "parallelDrumJson", bus.parallelDrumJson);
+                read(busValue, "stereoWidthEnabled", bus.stereoWidthEnabled);
+                read(busValue, "sideGainDb", bus.sideGainDb);
+                read(busValue, "midGainDb", bus.midGainDb);
+                read(busValue, "lowBandMonoHz", bus.lowBandMonoHz);
                 if (const auto role = roleFromString(busValue.value("role", "custom")))
                     bus.role = *role;
                 if (busValue.contains("childTrackIds") && busValue["childTrackIds"].is_array())

@@ -55,6 +55,7 @@ jobs:
           ./build/core/mastering_audio_tests "[milestone2a]" --reporter compact
           ./build/core/mastering_audio_tests "[milestone3a]" --reporter compact
           ./build/core/mastering_audio_tests "[milestone3b]" --reporter compact
+          ./build/core/mastering_audio_tests "[milestone3c]" --reporter compact
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -130,6 +131,7 @@ jobs:
           name: metalcore-engine-validation
           path: |
             artifacts/metalcore_engine_validation/**
+            artifacts/metalcore_engine_validation/blind_test/**
           if-no-files-found: warn
 
   ml-research:
@@ -205,6 +207,7 @@ jobs:
           "$TESTBIN" "[milestone2a]" --reporter compact
           "$TESTBIN" "[milestone3a]" --reporter compact
           "$TESTBIN" "[milestone3b]" --reporter compact
+          "$TESTBIN" "[milestone3c]" --reporter compact
       - name: Package
         shell: pwsh
         run: ./scripts/package-windows.ps1 -BuildDir build -OutDir dist/windows -Config Release

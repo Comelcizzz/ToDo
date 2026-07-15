@@ -1,5 +1,8 @@
 #include "mix-desktop/MainComponent.h"
+#include "mastering/analysis/StreamingAnalyzer.h"
+#include "mastering/assistant/ActionBudget.h"
 #include "mastering/assistant/MetalcoreAnalysis.h"
+#include "mastering/assistant/RenderIdentity.h"
 #include "mastering/assistant/SectionAutomation.h"
 #include "mastering/ipc/BridgeProtocol.h"
 #include "mastering/ipc/MixNodeProtocol.h"
@@ -7,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <nlohmann/json.hpp>
 
 namespace mastering::desktop {
 namespace {
@@ -709,64 +713,223 @@ void MainComponent::applyMixPlan()
 
 void MainComponent::generateMetalcoreMixPass()
 {
-    analysisStatus_ = "analyzing";
+    analysisStatus_ = "analyzing 0%";
     pushState();
     assistant::MetalcoreMixPass::ensureHierarchy(project_);
 
     assistant::MetalcoreMixPass::AnalysisMap analysis;
     juce::AudioFormatManager formats;
     formats.registerBasicFormats();
+
+    const int trackCount = static_cast<int>(project_.tracks.size());
+    int trackIndex = 0;
     for (const auto& track : project_.tracks) {
         assistant::TrackAnalysisExtras extras;
         extras.trackId = track.id;
         extras.role = track.role;
         extras.metrics = track.metrics;
+
         if (!track.audioPath.empty()) {
             if (auto reader = std::unique_ptr<juce::AudioFormatReader>(
                     formats.createReaderFor(juce::File(track.audioPath)))) {
-                const auto frames = static_cast<int>(std::min<double>(
-                    reader->lengthInSamples,
-                    reader->sampleRate * 60.0));
-                const auto ch = juce::jlimit(1, 2, static_cast<int>(reader->numChannels));
-                juce::AudioBuffer<float> buffer(ch, frames);
-                reader->read(&buffer, 0, frames, 0, true, ch > 1);
-                std::vector<std::vector<float>> channels(
-                    static_cast<std::size_t>(ch),
-                    std::vector<float>(static_cast<std::size_t>(frames)));
-                for (int c = 0; c < ch; ++c)
-                    std::copy_n(
-                        buffer.getReadPointer(c),
-                        frames,
-                        channels[static_cast<std::size_t>(c)].begin());
-                const auto mono = assistant::mixToMono(channels);
                 const auto sr = reader->sampleRate;
-                if (track.role == project::TrackRole::kick)
-                    extras.low = assistant::MetalcoreAnalysis::analyzeKickLow(mono, sr);
-                else if (track.role == project::TrackRole::bass)
-                    extras.low = assistant::MetalcoreAnalysis::analyzeBassLow(mono, sr);
-                else if (track.role == project::TrackRole::rhythmGuitarLeft
+                const auto totalFrames = reader->lengthInSamples;
+                const auto framesCap = static_cast<juce::int64>(
+                    sr * analysis::kMaxAnalysisSeconds);
+                const auto framesToRead = std::min(totalFrames, framesCap);
+
+                analysis::StreamingAnalyzer streaming;
+                streaming.setTrackIdentity(
+                    track.id,
+                    static_cast<std::uint64_t>(juce::File(track.audioPath).getSize()),
+                    static_cast<std::uint64_t>(
+                        juce::File(track.audioPath).getLastModificationTime().toMilliseconds()));
+                {
+                    std::vector<analysis::AnalysisSectionMarker> markers;
+                    markers.reserve(project_.sections.size());
+                    for (const auto& section : project_.sections) {
+                        analysis::AnalysisSectionMarker marker;
+                        marker.id = section.id;
+                        marker.startSeconds = section.startSeconds;
+                        marker.endSeconds = section.endSeconds;
+                        markers.push_back(std::move(marker));
+                    }
+                    streaming.setSectionMarkers(std::move(markers));
+                }
+
+                juce::int64 position = 0;
+                constexpr int kChunk = 4096;
+                juce::AudioBuffer<float> chunkBuffer(
+                    juce::jlimit(1, 2, static_cast<int>(reader->numChannels)),
+                    kChunk);
+
+                auto result = streaming.analyze(
+                    [&](float* monoOut, int maxChunkFrames, int& framesRead) -> bool {
+                        if (position >= framesToRead) {
+                            framesRead = 0;
+                            return false;
+                        }
+                        const auto toRead = static_cast<int>(std::min<juce::int64>(
+                            maxChunkFrames,
+                            std::min<juce::int64>(kChunk, framesToRead - position)));
+                        chunkBuffer.setSize(
+                            chunkBuffer.getNumChannels(),
+                            toRead,
+                            false,
+                            false,
+                            true);
+                        chunkBuffer.clear();
+                        reader->read(&chunkBuffer, 0, toRead, position, true, true);
+                        const auto ch = chunkBuffer.getNumChannels();
+                        for (int i = 0; i < toRead; ++i) {
+                            float sum = 0.0f;
+                            for (int c = 0; c < ch; ++c)
+                                sum += chunkBuffer.getSample(c, i);
+                            monoOut[i] = sum / static_cast<float>(std::max(1, ch));
+                        }
+                        framesRead = toRead;
+                        position += toRead;
+
+                        const double trackBase = trackCount > 0
+                            ? (100.0 * double(trackIndex) / double(trackCount))
+                            : 0.0;
+                        const double trackSpan = trackCount > 0 ? (100.0 / double(trackCount)) : 100.0;
+                        const int pct = static_cast<int>(std::clamp(
+                            trackBase + trackSpan * streaming.progress(),
+                            0.0,
+                            99.0));
+                        const auto status = "analyzing " + juce::String(pct) + "%";
+                        if (status != analysisStatus_) {
+                            analysisStatus_ = status;
+                            // Avoid flooding the UI: push only on integer percent changes.
+                            pushState();
+                        }
+                        return true;
+                    },
+                    sr);
+
+                extras.metrics = result.metrics.durationSeconds > 0.0 ? result.metrics : track.metrics;
+                extras.analysisCacheKey = result.cacheKey;
+                extras.vocalActivityRatio = result.vocal.activityRatio;
+                for (const auto& mask : result.masks) {
+                    assistant::TrackAnalysisExtras::ActivityMaskInfo info;
+                    info.kind = mask.kind;
+                    info.startSeconds = mask.startSeconds;
+                    info.endSeconds = mask.endSeconds;
+                    info.confidence = mask.confidence;
+                    if (mask.kind == "vocal" && mask.confidence > 0.35)
+                        extras.vocalMaskActive = true;
+                    extras.activityMasks.push_back(std::move(info));
+                }
+                for (const auto& summary : result.sectionSummaries) {
+                    assistant::TrackAnalysisExtras::SectionSummaryInfo info;
+                    info.sectionId = summary.sectionId;
+                    info.medianFundamentalHz = summary.medianFundamentalHz;
+                    info.kickEventCount = summary.kickEventCount;
+                    info.snareEventCount = summary.snareEventCount;
+                    info.meanRmsDb = summary.meanRmsDb;
+                    extras.sectionSummaries.push_back(std::move(info));
+                }
+
+                // Map streaming profiles into Mix Pass extras.
+                if (track.role == project::TrackRole::kick) {
+                    extras.low.dominantLowHz = result.kickLow.dominantLowHz;
+                    extras.low.bodyHz = result.kickLow.bodyHz;
+                    extras.low.clickHz = result.kickLow.clickHz;
+                    extras.low.sustainSeconds = result.kickLow.sustainSeconds;
+                    extras.low.lowDecaySeconds = result.kickLow.lowDecaySeconds;
+                    extras.low.stabilityScore = result.kickLow.stabilityScore;
+                    extras.low.eventCount = result.kickLow.eventCount > 0
+                        ? result.kickLow.eventCount
+                        : static_cast<int>(result.kickEvents.size());
+                    extras.low.evidence = result.kickLow.evidence.empty()
+                        ? "streaming-kick"
+                        : result.kickLow.evidence;
+                    for (const auto& peak : result.kickLow.fundamentalCandidates) {
+                        assistant::SpectralPeak p;
+                        p.frequencyHz = peak.frequencyHz;
+                        p.magnitudeDb = peak.magnitudeDb;
+                        p.prominenceDb = peak.prominenceDb;
+                        p.bandwidthHz = peak.bandwidthHz;
+                        extras.low.fundamentalCandidates.push_back(p);
+                    }
+                    if (extras.low.dominantLowHz <= 0.0 && !result.kickEvents.empty()) {
+                        extras.low.dominantLowHz = result.kickEvents.front().fundamentalHz;
+                        extras.low.bodyHz = result.kickEvents.front().bodyHz;
+                    }
+                } else if (track.role == project::TrackRole::bass) {
+                    extras.low.dominantLowHz = result.bassLow.dominantLowHz > 0.0
+                        ? result.bassLow.dominantLowHz
+                        : result.bass.stableFundamentalHz;
+                    extras.low.bodyHz = result.bassLow.bodyHz;
+                    extras.low.stabilityScore = result.bassLow.stabilityScore;
+                    extras.low.eventCount = result.bassLow.eventCount;
+                    extras.low.evidence = result.bassLow.evidence.empty()
+                        ? result.bass.evidence
+                        : result.bassLow.evidence;
+                    for (const auto& peak : result.bassLow.fundamentalCandidates) {
+                        assistant::SpectralPeak p;
+                        p.frequencyHz = peak.frequencyHz;
+                        p.magnitudeDb = peak.magnitudeDb;
+                        p.prominenceDb = peak.prominenceDb;
+                        extras.low.fundamentalCandidates.push_back(p);
+                    }
+                } else if (track.role == project::TrackRole::rhythmGuitarLeft
                     || track.role == project::TrackRole::rhythmGuitarRight
-                    || track.role == project::TrackRole::rhythmGuitar)
-                    extras.guitar = assistant::MetalcoreAnalysis::analyzeGuitar(
-                        mono,
-                        sr,
-                        track.metrics);
-                else if (track.role == project::TrackRole::cleanVocal
+                    || track.role == project::TrackRole::rhythmGuitar
+                    || track.role == project::TrackRole::leadGuitar
+                    || track.role == project::TrackRole::cleanGuitar) {
+                    extras.guitar.longTermRmsDb = result.guitar.longTermRmsDb;
+                    extras.guitar.lowMidBuildDb = result.guitar.lowMidBuildDb;
+                    extras.guitar.presenceDb = result.guitar.presenceDb;
+                    extras.guitar.harshPeakHz = result.guitar.harshPeakHz;
+                    extras.guitar.harshPeakDb = result.guitar.harshPeakDb;
+                    extras.guitar.harshQ = result.guitar.harshQ;
+                    extras.guitar.fizzEnergyDb = result.guitar.fizzEnergyDb;
+                    extras.guitar.articulationDb = result.guitar.articulationDb;
+                    extras.guitar.spectralTiltDbPerOct = result.guitar.spectralTiltDbPerOct;
+                    extras.guitar.transientDensityHz = result.guitar.transientDensityHz;
+                    extras.guitar.mudLikely = result.guitar.mudLikely;
+                    extras.guitar.harshLikely = result.guitar.harshLikely;
+                    extras.guitar.fizzLikely = result.guitar.fizzLikely;
+                    extras.guitar.evidence = result.guitar.evidence.empty()
+                        ? "streaming-guitar"
+                        : result.guitar.evidence;
+                } else if (track.role == project::TrackRole::cleanVocal
                     || track.role == project::TrackRole::screamVocal
-                    || track.role == project::TrackRole::backingVocal)
-                    extras.vocal = assistant::MetalcoreAnalysis::analyzeVocal(
-                        mono,
-                        sr,
-                        track.metrics,
-                        track.role);
-                else if (track.role == project::TrackRole::snare)
-                    extras.snare = assistant::MetalcoreAnalysis::analyzeSnare(
-                        mono,
-                        sr,
-                        track.metrics);
+                    || track.role == project::TrackRole::backingVocal) {
+                    extras.vocal.rideTargetDb = result.vocal.rideTargetDb;
+                    extras.vocal.activityRatio = result.vocal.activityRatio;
+                    extras.vocal.presenceCentroidHz = result.vocal.presenceCentroidHz;
+                    extras.vocal.sibilanceHz = result.vocal.sibilanceHz;
+                    extras.vocal.sibilanceEnergyDb = result.vocal.sibilanceEnergyDb;
+                    extras.vocal.resonanceHz = result.vocal.resonanceHz;
+                    extras.vocal.resonanceDb = result.vocal.resonanceDb;
+                    extras.vocal.crestDb = result.vocal.crestDb;
+                    extras.vocal.needsRide = result.vocal.needsRide;
+                    extras.vocal.needsDeEss = result.vocal.needsDeEss;
+                    extras.vocal.needsResonance = result.vocal.needsResonance;
+                    extras.vocal.needsPeakComp = result.vocal.needsPeakComp;
+                    extras.vocal.evidence = result.vocal.evidence.empty()
+                        ? "streaming-vocal"
+                        : result.vocal.evidence;
+                    extras.vocalActivityRatio = result.vocal.activityRatio;
+                    extras.vocalMaskActive = extras.vocalMaskActive
+                        || result.vocal.activityRatio > 0.08;
+                } else if (track.role == project::TrackRole::snare) {
+                    extras.snare.crackHz = result.snare.crackHz;
+                    extras.snare.bodyHz = result.snare.bodyHz;
+                    extras.snare.ringHz = result.snare.ringHz;
+                    extras.snare.eventRateHz = result.snare.eventRateHz;
+                    extras.snare.crackEnergyDb = result.snare.crackEnergyDb;
+                    extras.snare.evidence = result.snare.evidence.empty()
+                        ? "streaming-snare"
+                        : result.snare.evidence;
+                }
             }
         }
         analysis.emplace(track.id, std::move(extras));
+        ++trackIndex;
     }
 
     std::vector<assistant::ReferenceProfile> references;
@@ -786,9 +949,99 @@ void MainComponent::generateMetalcoreMixPass()
     options.bpm = project_.bpm;
     options.allowSyntheticFrequencyFallback = false;
     project_.mixPassActions = mixPass_.generateActions(project_, analysis, references, options);
+
+    // Persist ActionBudget summary + analysis cache metadata (schema v5).
+    {
+        nlohmann::json budgetJson;
+        budgetJson["minEvidence"] = assistant::ActionBudget {}.minEvidence;
+        budgetJson["maxActionsPerTrack"] = assistant::ActionBudget {}.maxActionsPerTrack;
+        budgetJson["actionCount"] = project_.mixPassActions.size();
+        int rejected = 0;
+        for (const auto& a : project_.mixPassActions) {
+            if (a.state == "rejected")
+                ++rejected;
+        }
+        budgetJson["rejectedCount"] = rejected;
+        project_.actionBudgetJson = budgetJson.dump();
+        project_.analysisCacheVersion = 1;
+        if (!project_.tracks.empty() && !analysis.empty()) {
+            const auto it = analysis.find(project_.tracks.front().id);
+            if (it != analysis.end())
+                project_.analysisCacheVersion = static_cast<int>(
+                    std::hash<std::string> {}(it->second.analysisCacheKey) & 0x7fffffff);
+        }
+
+        assistant::RenderIdentityInputs identityInputs;
+        identityInputs.schemaVersion = "5";
+        identityInputs.actionGraphJson = assistant::mixPassActionsToJson(project_.mixPassActions);
+        identityInputs.sectionAutomationJson = project_.sectionAutomationJson;
+        for (const auto& track : project_.tracks)
+            identityInputs.sourceAssetPaths.push_back(track.audioPath);
+        if (!project_.referencePath.empty())
+            identityInputs.referencePaths.push_back(project_.referencePath);
+        const auto identity = assistant::RenderIdentityBuilder::build(identityInputs);
+        project_.renderIdentityJson = identity.identityJson;
+    }
+
+    // AUTO compare policy: auto-apply default actions with evidenceScore >= 0.45
+    // (pending → applied as "auto-accepted"). Lower evidence stays pending for manual review.
+    // CURRENT = committed project state after these applies; RAW = dry.
+    constexpr double kAutoAcceptEvidence = 0.45;
+    for (auto& action : project_.mixPassActions) {
+        if (action.state == "rejected" || action.state == "cancelled")
+            continue;
+        if (action.state != "pending" && action.state != "edited")
+            continue;
+        if (action.evidenceScore < kAutoAcceptEvidence)
+            continue;
+        if (action.processorId == "none")
+            continue;
+        if (assistant::MetalcoreMixPass::applyAction(project_, action)) {
+            if (!action.decisionTrace.empty())
+                action.decisionTrace += " | ";
+            action.decisionTrace += "auto-accepted:evidence>=" + std::to_string(kAutoAcceptEvidence);
+        }
+    }
+
+    if (project_.virtualDrumBusEnabled == false) {
+        const auto* drumStem = assistant::MetalcoreMixPass::findTrack(
+            project_,
+            project::TrackRole::drumBus);
+        if (drumStem == nullptr) {
+            for (const auto& bus : project_.buses) {
+                if (bus.role == project::TrackRole::drumBus && bus.parallelEnabled) {
+                    project_.virtualDrumBusEnabled = true;
+                    break;
+                }
+            }
+        }
+    }
+
     const auto automation = assistant::SectionAutomation::fromActions(project_.mixPassActions);
+    project_.sectionAutomationJson = "{}"; // lanes live in actions; engine rebuilds fromActions
     engine_.setSectionAutomation(automation);
-    engine_.loadProject(project_); // refresh section project copy
+    engine_.loadProject(project_);
+    for (const auto& track : project_.tracks)
+        engine_.updateTrack(track);
+
+    // Seed compare LUFS estimates for RAW/AUTO/CURRENT match gain.
+    {
+        double avg = 0.0;
+        int n = 0;
+        for (const auto& track : project_.tracks) {
+            if (track.metrics.integratedLufsIsValid) {
+                avg += track.metrics.integratedLufs;
+                ++n;
+            }
+        }
+        if (n > 0) {
+            avg /= static_cast<double>(n);
+            engine_.setModeIntegratedLufs(StemEngine::CompareMode::current, avg);
+            engine_.setModeIntegratedLufs(StemEngine::CompareMode::autoProcessed, avg);
+            engine_.setModeIntegratedLufs(StemEngine::CompareMode::raw, avg - 1.5);
+        }
+    }
+
     mixPassUndoStack_.clear();
     mixPassRedoStack_.clear();
     analysisStatus_ = "ready";

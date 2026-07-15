@@ -96,6 +96,25 @@ struct TrackAnalysisExtras {
     VocalProfile vocal;
     SnareProfile snare;
     analysis::AudioMetrics metrics {};
+    // M3C streaming analysis extensions (optional; empty when metrics-only).
+    struct ActivityMaskInfo {
+        std::string kind;
+        double startSeconds {0.0};
+        double endSeconds {0.0};
+        double confidence {0.0};
+    };
+    struct SectionSummaryInfo {
+        std::string sectionId;
+        double medianFundamentalHz {0.0};
+        int kickEventCount {0};
+        int snareEventCount {0};
+        double meanRmsDb {-120.0};
+    };
+    std::vector<ActivityMaskInfo> activityMasks;
+    std::vector<SectionSummaryInfo> sectionSummaries;
+    double vocalActivityRatio {0.0}; // from streaming vocal.activityRatio or masks
+    bool vocalMaskActive {false};
+    std::string analysisCacheKey;
 };
 
 struct SubOwnershipDecision {

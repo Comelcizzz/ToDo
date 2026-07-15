@@ -223,45 +223,54 @@ void StreamingAnalyzer::accumulateChunk(const float* mono, int frames, double ti
 
     for (double localT : onsets) {
         const double t = timeOffsetSeconds + localT;
-        if (t - lastKickTime_ < kKickMinSpacing)
+        if (t - lastKickTime_ < kKickMinSpacing && t - lastSnareTime_ < kSnareMinSpacing)
             continue;
 
         const int center = static_cast<int>(localT * sampleRate_);
-        const int win = std::min(windows_.transient.sizeFrames, usable);
-        const int start = std::clamp(center - win / 4, 0, std::max(0, usable - 1));
-        const int len = std::min(win, usable - start);
-        if (len < 32)
+        const int transientWin = std::min(windows_.transient.sizeFrames, usable);
+        // Low fundamentals need a longer window than the transient hop size
+        // (one period of 40 Hz ≈ 25 ms; transient-only windows often miss F0).
+        const int lowWin = std::min(
+            std::max(windows_.lowFreq.sizeFrames / 2, transientWin * 4),
+            usable);
+        const int startLow = std::clamp(center - lowWin / 8, 0, std::max(0, usable - 1));
+        const int lenLow = std::min(lowWin, usable - startLow);
+        const int startTr = std::clamp(center - transientWin / 4, 0, std::max(0, usable - 1));
+        const int lenTr = std::min(transientWin, usable - startTr);
+        if (lenLow < 64 || lenTr < 32)
             continue;
 
         const auto lows = SpectralAnalysis::findPeaksInBand(
-            mono + start,
-            static_cast<std::size_t>(len),
+            mono + startLow,
+            static_cast<std::size_t>(lenLow),
             sampleRate_,
             30.0,
             120.0,
             3);
         const auto bodies = SpectralAnalysis::findPeaksInBand(
-            mono + start,
-            static_cast<std::size_t>(len),
+            mono + startLow,
+            static_cast<std::size_t>(lenLow),
             sampleRate_,
             80.0,
             250.0,
             2);
         const auto clicks = SpectralAnalysis::findPeaksInBand(
-            mono + start,
-            static_cast<std::size_t>(len),
+            mono + startTr,
+            static_cast<std::size_t>(lenTr),
             sampleRate_,
             1'500.0,
             6'000.0,
             2);
 
-        const double pk = peakDb(mono + start, len);
-        const double rms = rmsDb(mono + start, len);
+        const double pk = peakDb(mono + startTr, lenTr);
+        const double rms = rmsDb(mono + startTr, lenTr);
         const double crest = pk - rms;
 
         // Kick: strong low fundamental + moderate crest. Snare: weaker sub, higher crack.
         const bool kickLike = !lows.empty() && lows.front().magnitudeDb > -50.0 && crest < 18.0;
-        const bool snareLike = !clicks.empty() && clicks.front().magnitudeDb > -45.0
+        const bool snareLike = !clicks.empty()
+            && clicks.front().magnitudeDb > -40.0
+            && clicks.front().prominenceDb > 2.0
             && (lows.empty() || lows.front().magnitudeDb < -40.0);
 
         if (kickLike && (t - lastKickTime_) >= kKickMinSpacing) {

@@ -179,7 +179,14 @@ TEST_CASE("Mix Pass Preview Apply Reject Edit Undo and idempotent Apply", "[mile
             == Catch::Approx(beforeGain));
     }
 
-    auto rejectable = project.mixPassActions.back();
+    auto rejectableIt = std::find_if(
+        project.mixPassActions.begin(),
+        project.mixPassActions.end(),
+        [](const auto& a) {
+            return a.state == "pending" || a.state == "edited" || a.state == "previewing";
+        });
+    REQUIRE(rejectableIt != project.mixPassActions.end());
+    auto rejectable = *rejectableIt;
     REQUIRE(MetalcoreMixPass::rejectAction(rejectable));
     CHECK(rejectable.state == "rejected");
     CHECK_FALSE(MetalcoreMixPass::applyAction(project, rejectable));

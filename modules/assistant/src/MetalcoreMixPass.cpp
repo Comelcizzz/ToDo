@@ -1,5 +1,7 @@
 #include "mastering/assistant/MetalcoreMixPass.h"
+#include "mastering/assistant/ActionBudget.h"
 #include "mastering/assistant/ActionResolver.h"
+#include "mastering/assistant/EvidenceModel.h"
 #include "mastering/assistant/MetalcoreAnalysis.h"
 #include "mastering/assistant/SectionAutomation.h"
 
@@ -31,7 +33,58 @@ bool isPairMirrorProblem(const std::string& problemType)
         || problemType == "vocalGuitarUnmask"
         || problemType == "snareGuitarUnmask"
         || problemType == "vocalDeEss"
-        || problemType == "vocalResonance";
+        || problemType == "vocalResonance"
+        || problemType == "guitarStereoWidth";
+}
+
+void appendEvidenceBreakdown(project::MixPassAction& action, const EvidenceComponents& components)
+{
+    const auto text = components.breakdown();
+    if (text.empty())
+        return;
+    if (!action.decisionTrace.empty())
+        action.decisionTrace += " | ";
+    action.decisionTrace += text;
+    action.evidenceLabel = evidenceLabelFor(components.score() > 0.0 ? components.score() : action.evidenceScore);
+}
+
+void applySafeRangeToAction(
+    project::MixPassAction& action,
+    const std::string& role,
+    double cumulativeRemaining,
+    double proposedOffset)
+{
+    const auto range = deriveSafeRange(
+        action.processorId,
+        role,
+        action.evidenceScore,
+        cumulativeRemaining,
+        proposedOffset);
+    action.proposedValue = action.currentValue + range.finalProposal;
+    action.allowedMin = action.currentValue + range.finalMin;
+    action.allowedMax = action.currentValue + range.finalMax;
+    action.globalCap = range.globalCap;
+    action.roleCap = range.roleCap;
+    action.confidenceAdjustedCap = range.evidenceCap;
+    action.cumulativeCap = range.cumulativeCap;
+    if (!action.decisionTrace.empty())
+        action.decisionTrace += " | ";
+    action.decisionTrace += range.trace;
+}
+
+bool vocalActivityAllowsUnmask(const TrackAnalysisExtras* extras, const VocalProfile& profile)
+{
+    if (extras != nullptr) {
+        if (extras->vocalMaskActive)
+            return true;
+        if (extras->vocalActivityRatio > 0.08)
+            return true;
+        for (const auto& mask : extras->activityMasks) {
+            if (mask.kind == "vocal" && mask.confidence > 0.35)
+                return true;
+        }
+    }
+    return profile.activityRatio > 0.08;
 }
 
 project::MixPassAction makeAction(
@@ -728,6 +781,8 @@ std::vector<project::MixPassAction> MetalcoreMixPass::generateActions(
                 kickLow.evidence + "|" + bassLow.evidence,
                 decision.decisionTrace,
                 "track");
+            applySafeRangeToAction(a, "bass", cutCap, maxCut - a.currentValue);
+            a.proposedValue = std::clamp(a.proposedValue, 0.0, cutCap);
             a.hasProposedDynamicEq = true;
             a.proposedDynamicEq = bass->dynamicEq;
             a.proposedDynamicEq.bandCount = 1;
@@ -750,10 +805,57 @@ std::vector<project::MixPassAction> MetalcoreMixPass::generateActions(
             a.proposedDynamicEq.bands[0].sidechainSourceId = kick->id;
             a.allowedMin = 0.0;
             a.allowedMax = cutCap;
-            a.confidenceAdjustedCap = cutCap;
-            a.proposedValue = std::min(a.proposedValue, a.allowedMax);
-            a.proposedDynamicEq.bands[0].maxCutDb = a.proposedValue;
+            {
+                EvidenceComponents ev;
+                ev.roleCertainty = 0.9;
+                ev.spectralProminence = decision.evidenceScore;
+                ev.detectorAgreement = decision.evidenceScore;
+                ev.eventConsistency = kickLow.stabilityScore;
+                ev.eventCount = std::clamp(kickLow.eventCount / 16.0, 0.0, 1.0);
+                appendEvidenceBreakdown(a, ev);
+            }
             actions.push_back(std::move(a));
+
+            // Section-scoped DynEQ offsets when streaming section summaries differ.
+            const auto* kickExtrasFull = kickExtras;
+            const auto* bassExtrasFull = bassExtras;
+            if (kickExtrasFull != nullptr && !kickExtrasFull->sectionSummaries.empty()
+                && project.sections.size() > 1) {
+                double globalFund = kickLow.dominantLowHz;
+                for (const auto& summary : kickExtrasFull->sectionSummaries) {
+                    if (summary.sectionId.empty() || summary.medianFundamentalHz <= 0.0)
+                        continue;
+                    const double deltaHz = std::abs(summary.medianFundamentalHz - globalFund);
+                    if (deltaHz < 4.0)
+                        continue;
+                    const double sectionCut = std::clamp(
+                        maxCut * (0.85 + 0.05 * (deltaHz / 10.0)), 2.0, cutCap);
+                    auto sectionAction = makeAction(
+                        "kickBassMaskingSection",
+                        bass->id,
+                        "dynamicEq",
+                        "dynMaxCutDb",
+                        maxCut,
+                        sectionCut,
+                        std::clamp(decision.evidenceScore * 0.9, 0.4, 0.85),
+                        "Section-specific kick/bass DynEQ max-cut offset where section "
+                        "fundamental differs from global analysis.",
+                        metricsSnippet(bass->metrics),
+                        "sectionFund=" + std::to_string(summary.medianFundamentalHz),
+                        "section=" + summary.sectionId + ";deltaHz=" + std::to_string(deltaHz),
+                        "track");
+                    sectionAction.sectionScope = summary.sectionId;
+                    applySafeRangeToAction(
+                        sectionAction,
+                        "bass",
+                        3.0,
+                        sectionCut - maxCut);
+                    sectionAction.allowedMin = -3.0;
+                    sectionAction.allowedMax = 3.0;
+                    actions.push_back(std::move(sectionAction));
+                }
+            }
+            (void) bassExtrasFull;
         }
 
         const bool stableOverlap = kickLow.stabilityScore >= 0.35 && bassLow.stabilityScore >= 0.35
@@ -992,9 +1094,9 @@ std::vector<project::MixPassAction> MetalcoreMixPass::generateActions(
     // --- Vocal / guitar unmask ---
     const auto* vocalForUnmask = clean != nullptr ? clean : scream;
     if (options.enableVocalUnmask && vocalForUnmask != nullptr && (gL != nullptr || gR != nullptr)) {
-        const auto vocalProfile = resolveVocalProfile(
-            extrasFor(analysis, vocalForUnmask->id), *vocalForUnmask);
-        const bool active = vocalProfile.activityRatio > 0.08
+        const auto* vocalExtras = extrasFor(analysis, vocalForUnmask->id);
+        const auto vocalProfile = resolveVocalProfile(vocalExtras, *vocalForUnmask);
+        const bool active = vocalActivityAllowsUnmask(vocalExtras, vocalProfile)
             || vocalForUnmask->metrics.rmsDbfs > -35.0;
         if (active) {
             GuitarChannelProfile leftProfile {};
@@ -1202,33 +1304,80 @@ std::vector<project::MixPassAction> MetalcoreMixPass::generateActions(
                 glue.allowedMax = 4.0;
                 actions.push_back(std::move(glue));
 
-                // Parallel compression as second bounded makeup action (no true parallel in ProcessorChain).
+                // Real parallel compressor Action (ParallelCompressor DSP path).
+                const bool virtualBus = drumBusTrack == nullptr && drumBus != nullptr;
                 auto parallel = makeAction(
                     "drumBusParallel",
                     applyTrackId,
-                    "compressor",
-                    "makeupDb",
-                    glueTrack->processing.compressor.makeupDb,
-                    std::clamp(glueTrack->processing.compressor.makeupDb + 2.0, 0.0, 4.0),
+                    "parallelCompressor",
+                    "wetAmount",
+                    glueTrack->parallelWet,
+                    0.45,
                     0.55,
-                    "Drum-bus parallel compression encoded as bounded second compressor makeup "
-                    "(ProcessorChain has no dedicated parallel path).",
+                    virtualBus
+                        ? "Virtual drum-bus routing: ParallelCompressor wet/dry on drum hierarchy "
+                          "(no dedicated drum-bus stem)."
+                        : "Drum-bus parallel compression via ParallelCompressor (latency-aligned dry/wet).",
                     metricsSnippet(glueTrack->metrics),
-                    "parallel=makeup-proxy",
-                    "drumBusParallel:boundedMakeup",
+                    virtualBus ? "virtualDrumBus=true" : "parallelCompressor",
+                    "drumBusParallel:parallelCompressor",
                     "bus");
                 parallel.targetBusId = busId;
-                parallel.hasProposedProcessing = true;
-                parallel.proposedProcessing = glueTrack->processing;
-                parallel.proposedProcessing.compressor.thresholdDb = -18.0;
-                parallel.proposedProcessing.compressor.ratio = 4.0;
-                parallel.proposedProcessing.compressor.attackMs = 10.0;
-                parallel.proposedProcessing.compressor.releaseMs = 100.0;
-                parallel.proposedProcessing.compressor.makeupDb = parallel.proposedValue;
                 parallel.allowedMin = 0.0;
-                parallel.allowedMax = 4.0;
+                parallel.allowedMax = 1.0;
+                applySafeRangeToAction(parallel, "drum-bus", 8.0, 0.45 - parallel.currentValue);
+                parallel.proposedValue = std::clamp(parallel.proposedValue, 0.0, 1.0);
+                {
+                    EvidenceComponents ev;
+                    ev.roleCertainty = 0.8;
+                    ev.signalDuration = 0.7;
+                    ev.spectralProminence = 0.55;
+                    appendEvidenceBreakdown(parallel, ev);
+                }
                 actions.push_back(std::move(parallel));
             }
+        }
+    }
+
+    // --- Guitar stereo width (pair/bus only — never mono L or R alone) ---
+    if (gL != nullptr && gR != nullptr && !gL->pairId.empty() && gL->pairId == gR->pairId) {
+        const double corr = 0.5 * (gL->metrics.stereoCorrelation + gR->metrics.stereoCorrelation);
+        // Hard-panned mono pairs often report high correlation on each file; use combined cue.
+        const double widthCue = std::abs(gL->metrics.spectrum.presenceDb - gR->metrics.spectrum.presenceDb);
+        const bool narrow = corr > 0.85 && widthCue < 1.5;
+        const bool unstable = corr < 0.15;
+        if (narrow || unstable) {
+            const double sideDb = narrow ? 1.5 : -1.5;
+            const double evidence = narrow ? 0.55 : 0.5;
+            auto width = makeAction(
+                "guitarStereoWidth",
+                gL->id,
+                "stereoWidth",
+                "sideGainDb",
+                0.0,
+                sideDb,
+                evidence,
+                narrow
+                    ? "Rhythm guitar pair reads narrow/correlated — modest side gain via StereoWidth "
+                      "on the pair (not mono L or R alone)."
+                    : "Rhythm guitar pair correlation is unstable — reduce side gain and keep low "
+                      "band mono via StereoWidth on the pair.",
+                metricsSnippet(gL->metrics),
+                "corr=" + std::to_string(corr) + ";widthCue=" + std::to_string(widthCue),
+                "stereoWidth:pair",
+                "pair");
+            width.targetPairId = gL->pairId;
+            applySafeRangeToAction(width, "guitar", 6.0, sideDb);
+            width.allowedMin = -6.0;
+            width.allowedMax = 6.0;
+            {
+                EvidenceComponents ev;
+                ev.roleCertainty = 0.85;
+                ev.spectralProminence = evidence;
+                ev.temporalOverlap = 0.6;
+                appendEvidenceBreakdown(width, ev);
+            }
+            actions.push_back(std::move(width));
         }
     }
 
@@ -1355,7 +1504,45 @@ std::vector<project::MixPassAction> MetalcoreMixPass::generateActions(
 
     auto resolved = ActionResolver::resolve(std::move(actions));
     lastConflicts_ = std::move(resolved.conflicts);
-    return resolved.actions;
+
+    ActionBudget budget;
+    std::vector<std::string> rejectedReasons;
+    auto budgeted = applyBudget(std::move(resolved.actions), budget, rejectedReasons);
+
+    // Stable display order: kept (by resolver orderIndex) then rejected.
+    std::stable_sort(budgeted.begin(), budgeted.end(), [](const auto& a, const auto& b) {
+        const bool aRej = a.state == "rejected";
+        const bool bRej = b.state == "rejected";
+        if (aRej != bRej)
+            return !aRej && bRej;
+        return a.orderIndex < b.orderIndex;
+    });
+    for (std::size_t i = 0; i < budgeted.size(); ++i)
+        budgeted[i].orderIndex = static_cast<int>(i);
+
+    for (auto& action : budgeted) {
+        if (action.state == "rejected")
+            continue;
+        // Ensure DynEQ / gain proposals carry a SafeRangeDerivation.trace when missing.
+        if ((action.processorId == "dynamicEq" || action.processorId == "gain"
+                || action.processorId == "outputGain")
+            && action.decisionTrace.find("globalCap=") == std::string::npos) {
+            const std::string role = action.processingLevel == "bus" ? "drum-bus" : "track";
+            applySafeRangeToAction(
+                action,
+                role,
+                action.cumulativeCap > 0.0 ? action.cumulativeCap : 8.0,
+                action.proposedValue - action.currentValue);
+        }
+        if (action.decisionTrace.find("=> score=") == std::string::npos) {
+            EvidenceComponents ev;
+            ev.roleCertainty = action.evidenceScore;
+            ev.spectralProminence = action.evidenceScore;
+            ev.detectorAgreement = std::clamp(action.evidenceScore * 0.9, 0.0, 1.0);
+            appendEvidenceBreakdown(action, ev);
+        }
+    }
+    return budgeted;
 }
 
 std::vector<project::MixPassAction> MetalcoreMixPass::generateActions(
@@ -1454,8 +1641,67 @@ bool MetalcoreMixPass::applyAction(
                 bus->dynamicEq = action.proposedDynamicEq;
                 bus->dynamicEqEnabled = true;
             }
+            if (action.processorId == "parallelCompressor"
+                || action.processorId == "parallel") {
+                bus->parallelEnabled = true;
+                bus->parallelWet = std::clamp(action.proposedValue, 0.0, 1.0);
+                bus->parallelThresholdDb = -18.0;
+                bus->parallelRatio = 4.0;
+                bus->parallelAttackMs = 10.0;
+                bus->parallelReleaseMs = 100.0;
+                if (action.problemType == "drumBusParallel"
+                    && findTrack(project, project::TrackRole::drumBus) == nullptr) {
+                    project.virtualDrumBusEnabled = true;
+                }
+                // Mirror onto child tracks so StemEngine can process without a bus stem.
+                for (const auto& childId : bus->childTrackIds) {
+                    if (auto* child = findTrackMutable(project, childId)) {
+                        child->parallelEnabled = true;
+                        child->parallelWet = bus->parallelWet;
+                        child->parallelThresholdDb = bus->parallelThresholdDb;
+                        child->parallelRatio = bus->parallelRatio;
+                        child->parallelAttackMs = bus->parallelAttackMs;
+                        child->parallelReleaseMs = bus->parallelReleaseMs;
+                    }
+                }
+            }
+            if (action.processorId == "stereoWidth" || action.processorId == "stereo") {
+                bus->stereoWidthEnabled = true;
+                bus->sideGainDb = action.proposedValue;
+                bus->lowBandMonoHz = 120.0;
+            }
             action.state = "applied";
             return true;
+        }
+    }
+
+    // Pair-level stereo width (never applied to mono L/R alone without pair).
+    if (action.processorId == "stereoWidth" || action.processorId == "stereo") {
+        if (!action.targetPairId.empty()) {
+            project::PairRecord* pair = nullptr;
+            for (auto& p : project.pairs) {
+                if (p.id == action.targetPairId) {
+                    pair = &p;
+                    break;
+                }
+            }
+            if (pair != nullptr) {
+                pair->stereoWidthEnabled = true;
+                pair->sideGainDb = action.proposedValue;
+                pair->lowBandMonoHz = 120.0;
+                // Enable on stereo pair members only when channel is Stereo; for L/R mono
+                // stems, StemEngine applies width after pair sum via pair flags on both.
+                for (auto& track : project.tracks) {
+                    if (track.id == pair->leftTrackId || track.id == pair->rightTrackId) {
+                        track.stereoWidthEnabled = true;
+                        track.sideGainDb = action.proposedValue;
+                        track.lowBandMonoHz = pair->lowBandMonoHz;
+                        track.midGainDb = pair->midGainDb;
+                    }
+                }
+                action.state = "applied";
+                return true;
+            }
         }
     }
 
@@ -1493,6 +1739,33 @@ bool MetalcoreMixPass::applyAction(
         track->vocalRiderTargetDb = action.vocalRiderEnabled
             ? action.vocalRiderTargetDb
             : action.proposedValue;
+    } else if (action.processorId == "parallelCompressor"
+        || action.processorId == "parallel") {
+        track->parallelEnabled = true;
+        track->parallelWet = std::clamp(action.proposedValue, 0.0, 1.0);
+        track->parallelThresholdDb = -18.0;
+        track->parallelRatio = 4.0;
+        track->parallelAttackMs = 10.0;
+        track->parallelReleaseMs = 100.0;
+        if (!action.targetBusId.empty()) {
+            for (auto& bus : project.buses) {
+                if (bus.id == action.targetBusId) {
+                    bus.parallelEnabled = true;
+                    bus.parallelWet = track->parallelWet;
+                    break;
+                }
+            }
+        }
+    } else if (action.processorId == "stereoWidth" || action.processorId == "stereo") {
+        // Refuse mono L/R-only width without a pair target.
+        const bool monoSide = track->channelPosition == "L" || track->channelPosition == "R"
+            || track->channelPosition == "Mono";
+        if (monoSide && action.targetPairId.empty()) {
+            return false;
+        }
+        track->stereoWidthEnabled = true;
+        track->sideGainDb = action.proposedValue;
+        track->lowBandMonoHz = 120.0;
     } else if (action.hasProposedProcessing) {
         track->processing = action.proposedProcessing;
         if (action.processorId == "gain")
@@ -1512,6 +1785,11 @@ bool MetalcoreMixPass::applyAction(
                 if (action.hasProposedDynamicEq) {
                     other.dynamicEq = action.proposedDynamicEq;
                     other.dynamicEqEnabled = true;
+                }
+                if (action.processorId == "stereoWidth" || action.processorId == "stereo") {
+                    other.stereoWidthEnabled = true;
+                    other.sideGainDb = action.proposedValue;
+                    other.lowBandMonoHz = track->lowBandMonoHz;
                 }
             }
         }

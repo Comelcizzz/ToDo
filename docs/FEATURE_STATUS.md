@@ -87,6 +87,33 @@ Dynamic EQ + FD sidechain + detector: **IMPLEMENTED**. **M1C ACCEPTED**.
 
 **Gate:** see `docs/M3B_EVIDENCE_REPORT.md`.
 
+## Milestone 3C — Full-track streaming + DSP polish + evidence
+
+| Feature | Status | Notes |
+|---|---|---|
+| StreamingAnalyzer full-track | **IMPLEMENTED** | chunked; cancel; cache key; ≤30 min |
+| Kick/snare events + min spacing | **IMPLEMENTED** | heuristic; synthetic tests |
+| Bass occupancy bins | **IMPLEMENTED** | 30–180 Hz |
+| Section automation multi-param | **IMPLEMENTED** | dynMaxCutDb and related lanes |
+| ParallelCompressor real wet/dry | **IMPLEMENTED** | 0 latency; validation AUTO bus |
+| StereoWidth M/S + low mono | **IMPLEMENTED** | correlation guard |
+| LoudnessMatch LUFS policy | **IMPLEMENTED** | integrated / short-term / bounded-RMS |
+| ActionBudget | **IMPLEMENTED** | evidence-preferential |
+| EvidenceModel + safe ranges | **IMPLEMENTED** | Low/Medium/High labels |
+| RenderIdentity hashes | **IMPLEMENTED** | `render_identity.json` |
+| Blind A/B/C package | **IMPLEMENTED** | randomized; answer_key hidden |
+| 90s metalcore_engine_validation | **IMPLEMENTED** | StreamingAnalyzer evidence |
+| `[milestone3c]` tests | **IMPLEMENTED** | Catch2 |
+| Suite UI unlimited streaming | **IMPLEMENTED** | Mix Pass uses StreamingAnalyzer; ≤kMaxAnalysisSeconds |
+| AUTO auto-accept evidence≥0.45 | **IMPLEMENTED** | generate applies high-evidence defaults |
+| StemEngine parallel/width + LUFS A/B | **IMPLEMENTED** | compareMatchGainDb_ monitor makeup |
+| Project schema v5 | **IMPLEMENTED** | parallel/width + budget/identity fields |
+| Musical quality | **NOT CLAIMED** | synthetic ≠ mix proof |
+| ML Lab | **MISSING** | not started |
+| FL / installer manual | **NOT VERIFIED** | postponed |
+
+**Gate:** see `docs/M3C_EVIDENCE_REPORT.md`.
+
 ## Manual validation checklist
 
 Kept for a later full Metalcore Mix Pass manual pass: `docs/FL_MIX_NODE_VALIDATION.md`.
