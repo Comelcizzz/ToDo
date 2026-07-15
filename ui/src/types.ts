@@ -208,6 +208,16 @@ export interface SuiteState {
   grDb?: number;
   sidechainPeakDb?: number;
   degraded?: boolean;
+  productVersion?: string;
+  engineVersion?: string;
+  profileSchemaVersion?: number;
+  engineRevision?: number;
+  metalcoreProfileId?: string;
+  localOnly?: boolean;
+  localDataPath?: string;
+  lastExperimentSummary?: string;
+  lastImportValidation?: string;
+  userEditEventCount?: number;
 }
 
 export const emptyMetrics: AudioMetrics = {

@@ -1,4 +1,5 @@
 #include "analyzer-plugin/PluginEditor.h"
+#include "mastering/product/ProductVersion.h"
 
 namespace mastering::plugin {
 
@@ -56,6 +57,7 @@ void AnalyzerEditor::pushState()
 {
     auto state = juce::DynamicObject::Ptr(new juce::DynamicObject());
     state->setProperty("product", "plugin");
+    state->setProperty("productVersion", juce::String(product::currentProductVersion().display()));
     state->setProperty("connected", processor_.bridgeConnected());
     state->setProperty("projectId", processor_.projectId());
     state->setProperty("projectName", "FL Studio session");

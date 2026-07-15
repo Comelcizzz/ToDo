@@ -83,7 +83,14 @@ export type NativeCommand =
   | { type: "mix-node-undo"; instanceId?: string }
   | { type: "mix-node-request-state"; instanceId: string }
   | { type: "mix-node-set-param"; parameterId: string; value: number }
-  | { type: "set-track-name"; name: string };
+  | { type: "set-track-name"; name: string }
+  | { type: "open-local-data-folder" }
+  | { type: "clear-benchmark-cache" }
+  | { type: "clear-benchmark-renders" }
+  | { type: "run-profile-experiment" }
+  | { type: "cancel-experiment" }
+  | { type: "validate-benchmark-import" }
+  | { type: "set-metalcore-profile"; profileId: string };
 
 export function sendCommand(command: NativeCommand): void {
   window.__JUCE__?.backend.emitEvent("masteringAudioCommand", command);

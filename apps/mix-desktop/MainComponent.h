@@ -4,6 +4,7 @@
 #include "mix-desktop/StemEngine.h"
 #include "shared/WebViewComponent.h"
 #include "mastering/assistant/MetalcoreMixPass.h"
+#include "mastering/benchmark/UserEditCapture.h"
 #include "mastering/ipc/MixNodeProtocol.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -56,7 +57,13 @@ private:
     void redoMixPass();
     void addSection(const juce::var& command);
     void removeSection(const juce::String& sectionId);
+    void runProfileExperiment();
+    void openLocalDataFolder();
+    void clearBenchmarkCache();
+    void clearBenchmarkRenders();
+    void validateBenchmarkImportWizard();
     void pushState();
+    [[nodiscard]] juce::File localDataRoot() const;
     [[nodiscard]] project::TrackRecord* findTrack(const juce::String& id);
     [[nodiscard]] project::MixPassAction* findMixPassAction(const juce::String& id);
 
@@ -77,6 +84,11 @@ private:
     std::vector<std::string> mixPassUndoStack_;
     std::vector<std::string> mixPassRedoStack_;
     juce::String analysisStatus_ {"idle"};
+    juce::String lastExperimentSummary_ {"none"};
+    juce::String lastImportValidation_ {"idle"};
+    juce::String activeProfileId_ {"modern-metalcore-balanced"};
+    bool experimentCancelled_ {false};
+    benchmark::LocalUserEditLog userEditLog_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

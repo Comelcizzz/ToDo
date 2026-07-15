@@ -11,6 +11,7 @@ export function MixNodeView({ state }: { state: SuiteState }) {
           <small>
             {state.role} · {state.channelPosition} · {state.status}
           </small>
+          <small>{state.productVersion ?? "0.4.0-alpha.m4a"}</small>
         </div>
         <div className="header-meta">
           <span className={`status-dot ${state.connected ? "status-dot--online" : ""}`} />

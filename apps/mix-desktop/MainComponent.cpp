@@ -3,14 +3,25 @@
 #include "mastering/analysis/StreamingAnalyzer.h"
 #include "mastering/assistant/ActionBudget.h"
 #include "mastering/assistant/MetalcoreAnalysis.h"
+#include "mastering/assistant/MetalcoreProfile.h"
 #include "mastering/assistant/RenderIdentity.h"
 #include "mastering/assistant/SectionAutomation.h"
+#include "mastering/benchmark/CalibrationWorksheet.h"
+#include "mastering/benchmark/ExperimentRunner.h"
+#include "mastering/benchmark/ImportValidator.h"
+#include "mastering/benchmark/ListeningPackageV2.h"
+#include "mastering/benchmark/ObjectiveReport.h"
+#include "mastering/benchmark/RenderRetention.h"
+#include "mastering/benchmark/UserEditCapture.h"
 #include "mastering/ipc/BridgeProtocol.h"
 #include "mastering/ipc/MixNodeProtocol.h"
+#include "mastering/product/ProductVersion.h"
 #include "mastering/research/ResearchExample.h"
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <nlohmann/json.hpp>
 
 namespace mastering::desktop {
@@ -243,6 +254,24 @@ void MainComponent::handleCommand(const juce::var& command)
         sendMixNodeAction(type, command);
     } else if (type == "select-mix-node") {
         selectedMixNodeId_ = object->getProperty("instanceId").toString();
+    } else if (type == "open-local-data-folder") {
+        openLocalDataFolder();
+    } else if (type == "clear-benchmark-cache") {
+        clearBenchmarkCache();
+    } else if (type == "clear-benchmark-renders") {
+        clearBenchmarkRenders();
+    } else if (type == "run-profile-experiment") {
+        runProfileExperiment();
+    } else if (type == "cancel-experiment") {
+        experimentCancelled_ = true;
+        lastExperimentSummary_ = "cancelled";
+    } else if (type == "validate-benchmark-import") {
+        validateBenchmarkImportWizard();
+    } else if (type == "set-metalcore-profile") {
+        activeProfileId_ = object->getProperty("profileId").toString();
+        if (activeProfileId_.isEmpty())
+            activeProfileId_ = "modern-metalcore-balanced";
+        project_.metalcoreProfileId = activeProfileId_.toStdString();
     }
     pushState();
 }
@@ -1012,6 +1041,24 @@ void MainComponent::generateMetalcoreMixPass()
     assistant::MetalcoreMixPass::Options options;
     options.bpm = project_.bpm;
     options.allowSyntheticFrequencyFallback = false;
+    {
+        assistant::MetalcoreProfile profile = assistant::defaultBalancedProfile();
+        if (activeProfileId_ == "modern-metalcore-aggressive")
+            profile = assistant::defaultAggressiveProfile();
+        else if (activeProfileId_ == "custom")
+            profile = assistant::customProfileFrom(assistant::defaultBalancedProfile());
+        if (!project_.metalcoreProfileJson.empty()) {
+            if (auto parsed = assistant::deserializeProfile(project_.metalcoreProfileJson))
+                profile = *parsed;
+        }
+        std::vector<std::string> clamped;
+        assistant::clampProfileToHardCaps(profile, clamped);
+        options.profile = profile;
+        project_.metalcoreProfileId = profile.profileId;
+        project_.metalcoreProfileRevision = profile.revision;
+        project_.engineVersion = product::currentProductVersion().full();
+        activeProfileId_ = juce::String(profile.profileId);
+    }
     project_.mixPassActions = mixPass_.generateActions(project_, analysis, references, options);
 
     // Persist ActionBudget summary + analysis cache metadata (schema v5).
@@ -1137,14 +1184,32 @@ void MainComponent::applyMixPassActionCmd(const juce::String& actionId)
 
 void MainComponent::rejectMixPassAction(const juce::String& actionId)
 {
-    if (auto* action = findMixPassAction(actionId))
+    if (auto* action = findMixPassAction(actionId)) {
+        const auto before = *action;
         assistant::MetalcoreMixPass::rejectAction(*action);
+        userEditLog_.append(benchmark::captureMixPassEdit(
+            before,
+            *action,
+            "reject",
+            product::currentProductVersion().full(),
+            activeProfileId_.toStdString(),
+            project_.metalcoreProfileRevision.empty() ? "1" : project_.metalcoreProfileRevision));
+    }
 }
 
 void MainComponent::editMixPassAction(const juce::String& actionId, double proposedValue)
 {
-    if (auto* action = findMixPassAction(actionId))
+    if (auto* action = findMixPassAction(actionId)) {
+        const auto before = *action;
         assistant::MetalcoreMixPass::editAction(*action, proposedValue);
+        userEditLog_.append(benchmark::captureMixPassEdit(
+            before,
+            *action,
+            "edit",
+            product::currentProductVersion().full(),
+            activeProfileId_.toStdString(),
+            project_.metalcoreProfileRevision.empty() ? "1" : project_.metalcoreProfileRevision));
+    }
 }
 
 void MainComponent::cancelMixPassPreview(const juce::String& actionId)
@@ -1206,6 +1271,114 @@ void MainComponent::removeSection(const juce::String& sectionId)
     std::erase_if(project_.sections, [&](const auto& section) { return section.id == id; });
 }
 
+juce::File MainComponent::localDataRoot() const
+{
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("MasteringAudioSuite")
+        .getChildFile("benchmarks")
+        .getChildFile("personal");
+}
+
+void MainComponent::openLocalDataFolder()
+{
+    const auto root = localDataRoot();
+    root.createDirectory();
+    root.revealToUser();
+}
+
+void MainComponent::clearBenchmarkCache()
+{
+    const auto cache = localDataRoot().getChildFile("sessions");
+    if (!cache.isDirectory()) {
+        lastExperimentSummary_ = "no-cache";
+        return;
+    }
+    for (const auto& entry : juce::RangedDirectoryIterator(cache, true, "*", juce::File::findDirectories)) {
+        if (entry.getFile().getFileName() == "cache")
+            entry.getFile().deleteRecursively();
+    }
+    lastExperimentSummary_ = "cache-cleared";
+}
+
+void MainComponent::clearBenchmarkRenders()
+{
+    const auto sessions = localDataRoot().getChildFile("sessions");
+    if (!sessions.isDirectory()) {
+        lastExperimentSummary_ = "no-renders";
+        return;
+    }
+    for (const auto& entry : juce::RangedDirectoryIterator(sessions, true, "*", juce::File::findDirectories)) {
+        const auto name = entry.getFile().getFileName();
+        if (name == "renders" || name == "listening")
+            entry.getFile().deleteRecursively();
+    }
+    lastExperimentSummary_ = "renders-cleared";
+}
+
+void MainComponent::validateBenchmarkImportWizard()
+{
+    const auto root = localDataRoot();
+    root.createDirectory();
+    auto manifest = benchmark::makeReadinessFixtureManifest(root.getFullPathName().toStdString());
+    const auto report = benchmark::validateImport(manifest, root.getFullPathName().toStdString());
+    nlohmann::json j;
+    j["overall"] = severityToString(report.overall);
+    j["issueCount"] = report.issues.size();
+    j["localOnly"] = true;
+    j["path"] = root.getFullPathName().toStdString();
+    j["note"] = "Import wizard validation; ambiguous alignment is never auto-fixed";
+    lastImportValidation_ = juce::String(j.dump());
+    analysisStatus_ = "import-validated";
+}
+
+void MainComponent::runProfileExperiment()
+{
+    experimentCancelled_ = false;
+    assistant::MetalcoreMixPass::AnalysisMap analysis;
+    benchmark::ExperimentDefinition def;
+    def.experimentId = "suite-profile-ab";
+    def.profileIdA = "modern-metalcore-balanced";
+    def.profileIdB = "modern-metalcore-aggressive";
+    def.randomSeed = 42;
+    def.outputFolder = localDataRoot().getChildFile("experiments").getFullPathName().toStdString();
+    def.cancelled = experimentCancelled_;
+    const auto cmp = benchmark::ExperimentRunner::compareProfiles(project_, analysis, def);
+    if (experimentCancelled_) {
+        lastExperimentSummary_ = "cancelled";
+        return;
+    }
+    nlohmann::json summary;
+    summary["experimentId"] = def.experimentId;
+    summary["engine"] = product::currentProductVersion().full();
+    summary["actionsA"] = cmp.runA.actions.size();
+    summary["actionsB"] = cmp.runB.actions.size();
+    summary["added"] = cmp.actionDiff.added;
+    summary["removed"] = cmp.actionDiff.removed;
+    summary["changed"] = cmp.actionDiff.changed;
+    summary["deterministicRerun"] = cmp.runA.deterministicRerunMatch;
+    summary["note"] = "Metric/Action change is not automatically an improvement";
+    summary["localOnly"] = true;
+    lastExperimentSummary_ = juce::String(summary.dump());
+
+    const auto outDir = juce::File(juce::String(def.outputFolder));
+    outDir.createDirectory();
+    outDir.getChildFile("last-experiment.json").replaceWithText(lastExperimentSummary_);
+    const auto sheet = benchmark::emptyWorksheetFor(
+        def.experimentId,
+        product::currentProductVersion().full(),
+        def.profileIdA,
+        "1");
+    outDir.getChildFile("calibration-worksheet.json")
+        .replaceWithText(juce::String(benchmark::serializeCalibrationWorksheet(sheet)));
+    outDir.getChildFile("render-retention.json")
+        .replaceWithText(juce::String(
+            benchmark::serializeRenderRetentionPolicy(benchmark::defaultRenderRetentionPolicy())));
+    if (!userEditLog_.events().empty() || true) {
+        outDir.getChildFile("user-edit-events.json")
+            .replaceWithText(juce::String(userEditLog_.toJson()));
+    }
+}
+
 void MainComponent::pushState()
 {
     auto state = juce::JSON::parse(juce::String(project::serialize(project_)));
@@ -1214,6 +1387,16 @@ void MainComponent::pushState()
         return;
     object->setProperty("product", "desktop");
     object->setProperty("connected", true);
+    object->setProperty("productVersion", juce::String(product::currentProductVersion().display()));
+    object->setProperty("engineVersion", juce::String(product::currentProductVersion().full()));
+    object->setProperty("profileSchemaVersion", product::currentProductVersion().profileSchemaVersion);
+    object->setProperty("engineRevision", product::currentProductVersion().engineRevision);
+    object->setProperty("metalcoreProfileId", activeProfileId_);
+    object->setProperty("localOnly", true);
+    object->setProperty("localDataPath", localDataRoot().getFullPathName());
+    object->setProperty("lastExperimentSummary", lastExperimentSummary_);
+    object->setProperty("lastImportValidation", lastImportValidation_);
+    object->setProperty("userEditEventCount", static_cast<int>(userEditLog_.events().size()));
     object->setProperty("projectId", juce::String(project_.id));
     object->setProperty("projectName", juce::String(project_.name));
     object->setProperty("playing", engine_.isPlaying());

@@ -2,6 +2,7 @@
 
 #include "mastering/assistant/MetalcoreAnalysis.h"
 #include "mastering/assistant/ActionResolver.h"
+#include "mastering/assistant/MetalcoreProfile.h"
 #include "mastering/assistant/SectionAutomation.h"
 #include "mastering/project/ProjectDocument.h"
 
@@ -12,7 +13,7 @@
 
 namespace mastering::assistant {
 
-// Metalcore Mix Pass V2 (M3B) — adaptive evidence-based Actions + resolver.
+// Metalcore Mix Pass V2 (M3B+) — adaptive evidence-based Actions + profile-driven calibration (M4A).
 class MetalcoreMixPass {
 public:
     struct Options {
@@ -25,6 +26,8 @@ public:
         double bpm {140.0};
         // Fixed 65/70 Hz allowed only as synthetic-test fallback when analysis empty.
         bool allowSyntheticFrequencyFallback {false};
+        // M4A: calibratable profile (defaults to balanced when unset).
+        std::optional<MetalcoreProfile> profile;
     };
 
     using AnalysisMap = std::unordered_map<std::string, TrackAnalysisExtras>;

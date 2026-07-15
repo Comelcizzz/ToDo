@@ -117,6 +117,40 @@ Dynamic EQ + FD sidechain + detector: **IMPLEMENTED**. **M1C ACCEPTED**.
 
 **Gate:** **MILESTONE 3C ACCEPTED** — `docs/M3C_FINAL_VERIFICATION.md` (CI tip `fe82d2b`, run `29437233765`).
 
+## Milestone 4A — Personal benchmark, readiness, calibration infra
+
+| Feature | Status | Notes |
+|---|---|---|
+| Product version `0.4.0-alpha.m4a+sha` | **IMPLEMENTED** | Suite/Analyzer/Mix Node/installer/reports |
+| Personal benchmark library | **IMPLEMENTED** | `benchmarks/personal/` local-only gitignored |
+| BenchmarkSessionManifest | **IMPLEMENTED** | versioned schema |
+| Import validator | **IMPLEMENTED** | no auto guitar align |
+| Import wizard Suite hooks | **IMPLEMENTED** | validate + local data controls (no redesign) |
+| MetalcoreProfile typed | **IMPLEMENTED** | balanced / aggressive / custom |
+| Hard safety caps | **IMPLEMENTED** | cannot bypass via profile |
+| Experiment runner | **IMPLEMENTED** | headless + Suite A/B |
+| Action Graph / metrics diff | **IMPLEMENTED** | |
+| Ablation framework | **IMPLEMENTED** | top-N / category; capped variants |
+| Objective reports | **IMPLEMENTED** | no MixQualityScore |
+| Expected annotations eval-only | **IMPLEMENTED** | generation isolation tested |
+| Listening package v2 | **IMPLEMENTED** | blind labels + answer key |
+| ListeningEvaluation schema | **IMPLEMENTED** | local; not training |
+| User edit capture | **IMPLEMENTED** | structured local events |
+| Privacy / local-data UI | **IMPLEMENTED** | path, clear cache/renders |
+| Reproducibility manifests | **IMPLEMENTED** | deterministic Action IDs |
+| Golden synthetic regressions | **IMPLEMENTED** | `[milestone4a]` |
+| Readiness fixture | **IMPLEMENTED** | synthetic import issues |
+| Linux/Windows comparison doc | **IMPLEMENTED** | tolerance policy |
+| `[milestone4a]` CI | **IMPLEMENTED** | Linux + Windows filters |
+| Musical quality proven | **NOT CLAIMED** | no real-stem listening gate |
+| ML Lab | **MISSING** | not started |
+| FL / installer manual | **NOT VERIFIED** | postponed |
+| M2A | **PARTIAL** | unchanged |
+
+**Evidence:** `docs/M4A_EVIDENCE_REPORT.md`, `docs/M4A_LINUX_WINDOWS_COMPARISON.md`.
+
+**Gate:** set after tip CI — infrastructure milestone only; musical quality not proven.
+
 ## Manual validation checklist
 
 Kept for a later full Metalcore Mix Pass manual pass: `docs/FL_MIX_NODE_VALIDATION.md`.

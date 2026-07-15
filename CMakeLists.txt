@@ -1,11 +1,23 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(MasteringAudioSuite VERSION 0.1.0 LANGUAGES C CXX)
+project(MasteringAudioSuite VERSION 0.4.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Short git SHA for product version string (0.4.0-alpha.m4a+abcdef0).
+set(MASTERING_AUDIO_GIT_SHA "unknown")
+find_package(Git QUIET)
+if(GIT_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse --short=7 HEAD
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE MASTERING_AUDIO_GIT_SHA
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+endif()
 
 option(MASTERING_AUDIO_BUILD_PRODUCTS "Build the JUCE VST3 and desktop products" ON)
 option(MASTERING_AUDIO_BUILD_TESTS "Build native unit tests" ON)
@@ -48,6 +60,19 @@ add_library(mastering_audio_core STATIC
     modules/assistant/src/RenderIdentity.cpp
     modules/assistant/src/AutoApplyPolicy.cpp
     modules/assistant/src/RealtimeOfflineCompare.cpp
+    modules/assistant/src/MetalcoreProfile.cpp
+    modules/product-version/src/ProductVersion.cpp
+    modules/benchmark/src/BenchmarkSessionManifest.cpp
+    modules/benchmark/src/ImportValidator.cpp
+    modules/benchmark/src/ActionGraphDiff.cpp
+    modules/benchmark/src/ExperimentRunner.cpp
+    modules/benchmark/src/AblationRunner.cpp
+    modules/benchmark/src/ListeningPackageV2.cpp
+    modules/benchmark/src/UserEditCapture.cpp
+    modules/benchmark/src/ObjectiveReport.cpp
+    modules/benchmark/src/GoldenRegression.cpp
+    modules/benchmark/src/CalibrationWorksheet.cpp
+    modules/benchmark/src/RenderRetention.cpp
     modules/dsp/src/VocalRider.cpp
     modules/project-bridge/src/ProjectDocument.cpp
     modules/research-export/src/ResearchExample.cpp
@@ -64,10 +89,19 @@ target_include_directories(mastering_audio_core
         modules/project-bridge/include
         modules/research-export/include
         modules/ipc/include
+        modules/product-version/include
+        modules/benchmark/include
 )
 
 target_compile_features(mastering_audio_core PUBLIC cxx_std_23)
 target_link_libraries(mastering_audio_core PUBLIC nlohmann_json::nlohmann_json)
+target_compile_definitions(mastering_audio_core
+    PUBLIC
+        MASTERING_AUDIO_GIT_SHA="${MASTERING_AUDIO_GIT_SHA}"
+        MASTERING_AUDIO_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+        MASTERING_AUDIO_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+        MASTERING_AUDIO_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+)
 set_target_properties(mastering_audio_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 if(MSVC)
@@ -109,6 +143,7 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tests/MetalcoreEngineM3BTests.cpp
         tests/MetalcoreEngineM3CTests.cpp
         tests/MetalcoreEngineM3CVerificationTests.cpp
+        tests/Milestone4ATests.cpp
     )
     target_link_libraries(mastering_audio_tests
         PRIVATE
@@ -175,6 +210,7 @@ if(MASTERING_AUDIO_BUILD_PRODUCTS)
         PLUGIN_MANUFACTURER_CODE MsAu
         PLUGIN_CODE MsAn
         FORMATS VST3
+        VERSION ${PROJECT_VERSION}
         PRODUCT_NAME "Mastering Audio Analyzer"
         IS_SYNTH FALSE
         NEEDS_MIDI_INPUT FALSE
@@ -212,6 +248,7 @@ if(MASTERING_AUDIO_BUILD_PRODUCTS)
         PLUGIN_MANUFACTURER_CODE MsAu
         PLUGIN_CODE MsMn
         FORMATS VST3
+        VERSION ${PROJECT_VERSION}
         PRODUCT_NAME "Mastering Audio Mix Node"
         IS_SYNTH FALSE
         NEEDS_MIDI_INPUT FALSE
@@ -247,6 +284,7 @@ if(MASTERING_AUDIO_BUILD_PRODUCTS)
     juce_add_gui_app(MasteringAudioSuite
         COMPANY_NAME "Mastering Audio"
         BUNDLE_ID "audio.mastering.suite"
+        VERSION ${PROJECT_VERSION}
         PRODUCT_NAME "Mastering Audio Suite"
         NEEDS_WEB_BROWSER TRUE
         NEEDS_WEBVIEW2 TRUE

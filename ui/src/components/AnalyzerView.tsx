@@ -95,6 +95,7 @@ export function AnalyzerView({ state }: { state: SuiteState }) {
         <div>
           <p className="eyebrow">FL Studio track analyzer</p>
           <h1>Mastering Audio</h1>
+          <small>{state.productVersion ?? "0.4.0-alpha.m4a"}</small>
         </div>
         <span
           className={`status ${state.connected ? "status--online" : "status--offline"}`}

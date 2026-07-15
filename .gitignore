@@ -14,13 +14,25 @@ dist/
 *.aif
 *.aiff
 *.masuite
-!benchmarks/personal/manifest.json
-!benchmarks/personal/README.md
+# Personal benchmark library — local-only; never commit audio or session renders.
+benchmarks/personal/sessions/
 benchmarks/personal/stems/
 benchmarks/personal/references/
 benchmarks/personal/targets/
 benchmarks/personal/renders/
 benchmarks/personal/reports/
+benchmarks/personal/listening/
+benchmarks/personal/cache/
+benchmarks/personal/experiments/
+!benchmarks/personal/manifest.json
+!benchmarks/personal/README.md
+# Tracked calibration profiles (no audio)
+!benchmarks/profiles/
+!benchmarks/profiles/**
+!benchmarks/synthetic/
+!benchmarks/synthetic/**
+!benchmarks/experiments/
+!benchmarks/experiments/.gitkeep
 *.analysis.json
 __pycache__/
 *.egg-info/

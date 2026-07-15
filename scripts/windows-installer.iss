@@ -9,7 +9,7 @@
 #endif
 
 #define MyAppName "Mastering Audio Suite"
-#define MyAppVersion "0.2.0"
+#define MyAppVersion "0.4.0"
 #define MyAppPublisher "Mastering Audio"
 #define MyAppExeName "Mastering Audio Suite.exe"
 

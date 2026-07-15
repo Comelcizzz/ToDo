@@ -4,10 +4,14 @@
 #include "mastering/assistant/AutoApplyPolicy.h"
 #include "mastering/assistant/EvidenceModel.h"
 #include "mastering/assistant/MetalcoreAnalysis.h"
+#include "mastering/assistant/MetalcoreProfile.h"
 #include "mastering/assistant/SectionAutomation.h"
+#include "mastering/analysis/Sha256.h"
+#include "mastering/product/ProductVersion.h"
 
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <unordered_map>
@@ -88,6 +92,27 @@ bool vocalActivityAllowsUnmask(const TrackAnalysisExtras* extras, const VocalPro
     return profile.activityRatio > 0.08;
 }
 
+// M4A: Action IDs must be reproducible across reruns (not random UUIDs).
+std::string makeDeterministicActionId(
+    const std::string& problem,
+    const std::string& trackId,
+    const std::string& processor,
+    const std::string& parameter,
+    double current,
+    double proposed,
+    double evidenceScore,
+    const std::string& processingLevel,
+    const std::string& decisionTrace)
+{
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(6)
+        << problem << '|' << trackId << '|' << processor << '|' << parameter << '|'
+        << current << '|' << proposed << '|' << evidenceScore << '|'
+        << processingLevel << '|' << decisionTrace;
+    const auto hex = analysis::sha256Hex(oss.str());
+    return hex.size() > 32 ? hex.substr(0, 32) : hex;
+}
+
 project::MixPassAction makeAction(
     const std::string& problem,
     const std::string& trackId,
@@ -103,7 +128,9 @@ project::MixPassAction makeAction(
     const std::string& processingLevel = "track")
 {
     project::MixPassAction a;
-    a.actionId = project::makeProjectId();
+    a.actionId = makeDeterministicActionId(
+        problem, trackId, processor, parameter, current, proposed, evidenceScore,
+        processingLevel, decisionTrace);
     a.problemType = problem;
     a.targetTrackId = trackId;
     a.processorId = processor;
@@ -1506,7 +1533,14 @@ std::vector<project::MixPassAction> MetalcoreMixPass::generateActions(
     auto resolved = ActionResolver::resolve(std::move(actions));
     lastConflicts_ = std::move(resolved.conflicts);
 
-    ActionBudget budget;
+    const MetalcoreProfile profile = options.profile.has_value()
+        ? resolveProfileHierarchy(
+              defaultBalancedProfile(),
+              options.profile,
+              std::nullopt)
+        : defaultBalancedProfile();
+
+    ActionBudget budget = profile.budget;
     std::vector<std::string> rejectedReasons;
     auto budgeted = applyBudget(std::move(resolved.actions), budget, rejectedReasons);
 
@@ -1557,10 +1591,19 @@ std::vector<project::MixPassAction> MetalcoreMixPass::generateActions(
             ev.detectorAgreement = std::clamp(action.evidenceScore * 0.9, 0.0, 1.0);
             appendEvidenceBreakdown(action, ev);
         }
+        if (!action.decisionTrace.empty())
+            action.decisionTrace += " | ";
+        action.decisionTrace +=
+            "engine=" + product::currentProductVersion().full()
+            + ";profile=" + profile.profileId
+            + "@" + profile.revision
+            + ";profileSchema=" + std::to_string(profile.schemaVersion);
     }
 
-    // Risk classification + AUTO eligibility AFTER budget (never use universal 0.45).
-    annotateAutoApplyEligibility(budgeted);
+    // Risk classification + AUTO eligibility AFTER budget (profile-driven, never universal 0.45).
+    AutoApplyPolicyConfig autoCfg = profile.autoApply;
+    autoCfg.allowReferenceAutoApply = profile.reference.allowAutoApply;
+    annotateAutoApplyEligibility(budgeted, autoCfg);
     return budgeted;
 }
 

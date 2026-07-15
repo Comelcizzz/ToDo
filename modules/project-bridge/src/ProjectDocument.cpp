@@ -446,6 +446,11 @@ std::string serialize(const ProjectDocument& project)
         {"actionBudgetJson", project.actionBudgetJson},
         {"analysisCacheVersion", project.analysisCacheVersion},
         {"renderIdentityJson", project.renderIdentityJson},
+        {"metalcoreProfileId", project.metalcoreProfileId},
+        {"metalcoreProfileRevision", project.metalcoreProfileRevision},
+        {"metalcoreProfileJson", project.metalcoreProfileJson},
+        {"engineVersion", project.engineVersion},
+        {"benchmarkSessionId", project.benchmarkSessionId},
         {"tracks", json::array()},
         {"pairs", json::array()},
         {"buses", json::array()},
@@ -639,6 +644,11 @@ std::optional<ProjectDocument> deserialize(std::string_view source, DeserializeE
         read(value, "actionBudgetJson", project.actionBudgetJson);
         read(value, "analysisCacheVersion", project.analysisCacheVersion);
         read(value, "renderIdentityJson", project.renderIdentityJson);
+        read(value, "metalcoreProfileId", project.metalcoreProfileId);
+        read(value, "metalcoreProfileRevision", project.metalcoreProfileRevision);
+        read(value, "metalcoreProfileJson", project.metalcoreProfileJson);
+        read(value, "engineVersion", project.engineVersion);
+        read(value, "benchmarkSessionId", project.benchmarkSessionId);
 
         if (project.schemaVersion < kMinSupportedSchemaVersion) {
             error.message = "Project schemaVersion is too old and unsupported";

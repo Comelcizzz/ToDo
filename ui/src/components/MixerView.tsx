@@ -170,6 +170,7 @@ export function MixerView({ state }: { state: SuiteState }) {
           <div>
             <strong>Mastering Audio</strong>
             <small>Metalcore Mix Pass</small>
+            <small>{state.productVersion ?? "0.4.0-alpha.m4a"}</small>
           </div>
         </div>
 
@@ -190,6 +191,27 @@ export function MixerView({ state }: { state: SuiteState }) {
           >
             Export ML example
           </button>
+          <button
+            title="Validate local personal benchmark session layout (no auto guitar align)"
+            onClick={() => sendCommand({ type: "validate-benchmark-import" })}
+          >
+            Import wizard check
+          </button>
+          <button onClick={() => sendCommand({ type: "run-profile-experiment" })}>
+            Run profile A/B
+          </button>
+          <button onClick={() => sendCommand({ type: "cancel-experiment" })}>
+            Cancel experiment
+          </button>
+          <button onClick={() => sendCommand({ type: "open-local-data-folder" })}>
+            Open local data
+          </button>
+          <button onClick={() => sendCommand({ type: "clear-benchmark-cache" })}>
+            Clear cache
+          </button>
+          <button onClick={() => sendCommand({ type: "clear-benchmark-renders" })}>
+            Clear renders
+          </button>
         </nav>
 
         <div className="sidebar__status">
@@ -197,6 +219,13 @@ export function MixerView({ state }: { state: SuiteState }) {
           <div>
             <strong>{state.connected ? "Bridge listening" : "Bridge starting"}</strong>
             <small>Status: {state.analysisStatus ?? "idle"}</small>
+            <small>
+              {state.localOnly === false ? "cloud" : "local-only"} ·{" "}
+              {state.metalcoreProfileId ?? "modern-metalcore-balanced"}
+            </small>
+            <small title={state.localDataPath}>
+              Data: {state.localDataPath ? "personal benchmarks" : "unset"}
+            </small>
           </div>
         </div>
       </aside>
@@ -515,12 +544,40 @@ export function MixerView({ state }: { state: SuiteState }) {
             >
               Run Metalcore Mix Pass
             </button>
+            <div className="variant-row">
+              {(
+                [
+                  "modern-metalcore-balanced",
+                  "modern-metalcore-aggressive",
+                  "custom",
+                ] as const
+              ).map((profileId) => (
+                <button
+                  key={profileId}
+                  className={
+                    (state.metalcoreProfileId ?? "modern-metalcore-balanced") === profileId
+                      ? "button button--primary"
+                      : "button"
+                  }
+                  onClick={() => sendCommand({ type: "set-metalcore-profile", profileId })}
+                >
+                  {profileId.replace("modern-metalcore-", "")}
+                </button>
+              ))}
+            </div>
             <p className="assistant__intro">
               Analysis: {state.analysisStatus ?? "idle"}
               {typeof state.referenceGainDb === "number"
                 ? ` · REF match ${state.referenceGainDb.toFixed(1)} dB`
                 : ""}
             </p>
+            <p className="assistant__intro">
+              Benchmark: {state.lastExperimentSummary ?? "none"} · edits{" "}
+              {state.userEditEventCount ?? 0}
+            </p>
+            {state.lastImportValidation && state.lastImportValidation !== "idle" ? (
+              <p className="assistant__intro">Import: {state.lastImportValidation.slice(0, 160)}</p>
+            ) : null}
 
             <div className="variant-row">
               <button

@@ -1,6 +1,7 @@
 #include "mix-node-plugin/PluginEditor.h"
 #include "mastering/dsp/ParameterSmoother.h"
 #include "mastering/ipc/MixNodeProtocol.h"
+#include "mastering/product/ProductVersion.h"
 
 namespace mastering::plugin {
 
@@ -63,6 +64,7 @@ void MixNodeEditor::pushState()
     const auto meters = processor_.controller().meters();
     auto state = juce::DynamicObject::Ptr(new juce::DynamicObject());
     state->setProperty("product", "mix-node");
+    state->setProperty("productVersion", juce::String(product::currentProductVersion().display()));
     state->setProperty("connected", processor_.bridgeConnected());
     state->setProperty("projectId", juce::String(snap.identity.projectId));
     state->setProperty("sessionId", juce::String(snap.identity.sessionId));

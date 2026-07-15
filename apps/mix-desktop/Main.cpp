@@ -1,4 +1,5 @@
 #include "mix-desktop/MainComponent.h"
+#include "mastering/product/ProductVersion.h"
 
 #include <juce_gui_extra/juce_gui_extra.h>
 
@@ -7,7 +8,10 @@ namespace mastering::desktop {
 class MasteringAudioApplication final : public juce::JUCEApplication {
 public:
     const juce::String getApplicationName() override { return "Mastering Audio Suite"; }
-    const juce::String getApplicationVersion() override { return "0.1.0"; }
+    const juce::String getApplicationVersion() override
+    {
+        return juce::String(product::currentProductVersion().full());
+    }
     bool moreThanOneInstanceAllowed() override { return false; }
 
     void initialise(const juce::String&) override

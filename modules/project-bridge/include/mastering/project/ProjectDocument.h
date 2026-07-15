@@ -12,7 +12,7 @@
 
 namespace mastering::project {
 
-inline constexpr int kCurrentSchemaVersion = 5;
+inline constexpr int kCurrentSchemaVersion = 6;
 inline constexpr int kMinSupportedSchemaVersion = 1;
 
 enum class TrackRole {
@@ -231,6 +231,12 @@ struct ProjectDocument {
     std::string actionBudgetJson;
     int analysisCacheVersion {0};
     std::string renderIdentityJson;
+    // M4A profile / benchmark metadata.
+    std::string metalcoreProfileId {"modern-metalcore-balanced"};
+    std::string metalcoreProfileRevision {"1"};
+    std::string metalcoreProfileJson;
+    std::string engineVersion;
+    std::string benchmarkSessionId;
 };
 
 struct DeserializeError {
