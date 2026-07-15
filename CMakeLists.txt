@@ -94,6 +94,7 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tests/DynamicEqTests.cpp
         tests/MixNodeTests.cpp
         tests/MetalcoreMixPassTests.cpp
+        tests/MetalcoreEngineM3BTests.cpp
     )
     target_link_libraries(mastering_audio_tests
         PRIVATE
@@ -120,6 +121,11 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tools/mixpass-validation/main.cpp
     )
     target_link_libraries(mixpass_validation PRIVATE mastering_audio_core)
+
+    add_executable(metalcore_engine_validation
+        tools/metalcore-engine-validation/main.cpp
+    )
+    target_link_libraries(metalcore_engine_validation PRIVATE mastering_audio_core)
 
     include(CTest)
     include(Catch)

@@ -44,15 +44,17 @@ jobs:
           if [[ -d testdata/official/wav ]] && compgen -G "testdata/official/wav/*.wav" > /dev/null; then
             ./build/core/mastering_audio_tests "[official]" --reporter compact
           fi
-          mkdir -p artifacts/dsp_validation artifacts/dynamic_processing_validation artifacts/mix_node_validation artifacts/mixpass_validation
+          mkdir -p artifacts/dsp_validation artifacts/dynamic_processing_validation artifacts/mix_node_validation artifacts/mixpass_validation artifacts/metalcore_engine_validation
           ./build/core/dsp_validation_render artifacts/dsp_validation
           ./build/core/dynamic_processing_validation artifacts/dynamic_processing_validation
           ./build/core/mix_node_validation artifacts/mix_node_validation
           ./build/core/mixpass_validation artifacts/mixpass_validation benchmarks/personal
+          ./build/core/metalcore_engine_validation artifacts/metalcore_engine_validation
           ./build/core/mastering_audio_tests "[milestone1b]" --reporter compact
           ./build/core/mastering_audio_tests "[milestone1c]" --reporter compact
           ./build/core/mastering_audio_tests "[milestone2a]" --reporter compact
           ./build/core/mastering_audio_tests "[milestone3a]" --reporter compact
+          ./build/core/mastering_audio_tests "[milestone3b]" --reporter compact
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -122,6 +124,13 @@ jobs:
           path: |
             artifacts/mixpass_validation/benchmark_smoke.md
           if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: metalcore-engine-validation
+          path: |
+            artifacts/metalcore_engine_validation/**
+          if-no-files-found: warn
 
   ml-research:
     runs-on: ubuntu-latest
@@ -161,7 +170,7 @@ jobs:
         run: |
           cmake --build build --config Release --parallel
           ctest --test-dir build -C Release --output-on-failure
-          mkdir -p artifacts/dsp_validation artifacts/dynamic_processing_validation artifacts/mix_node_validation artifacts/mixpass_validation
+          mkdir -p artifacts/dsp_validation artifacts/dynamic_processing_validation artifacts/mix_node_validation artifacts/mixpass_validation artifacts/metalcore_engine_validation
           TOOL=$(find build -type f \( -name 'dsp_validation_render.exe' -o -name 'dsp_validation_render' \) | head -n 1)
           if [[ -z "$TOOL" ]]; then
             echo "dsp_validation_render not found" >&2
@@ -186,9 +195,16 @@ jobs:
             exit 1
           fi
           "$MP" artifacts/mixpass_validation benchmarks/personal
+          M3B=$(find build -type f \( -name 'metalcore_engine_validation.exe' -o -name 'metalcore_engine_validation' \) | head -n 1)
+          if [[ -z "$M3B" ]]; then
+            echo "metalcore_engine_validation not found" >&2
+            exit 1
+          fi
+          "$M3B" artifacts/metalcore_engine_validation
           TESTBIN=$(find build -type f -name 'mastering_audio_tests.exe' | head -n 1)
           "$TESTBIN" "[milestone2a]" --reporter compact
           "$TESTBIN" "[milestone3a]" --reporter compact
+          "$TESTBIN" "[milestone3b]" --reporter compact
       - name: Package
         shell: pwsh
         run: ./scripts/package-windows.ps1 -BuildDir build -OutDir dist/windows -Config Release
@@ -259,6 +275,13 @@ jobs:
           name: mixpass-benchmark-summary-windows
           path: |
             artifacts/mixpass_validation/benchmark_smoke.md
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: metalcore-engine-validation-windows
+          path: |
+            artifacts/metalcore_engine_validation/**
           if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()
