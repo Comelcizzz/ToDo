@@ -23,21 +23,45 @@ Statuses: `IMPLEMENTED` | `PARTIAL` | `STUB` | `MOCK` | `MISSING`
 
 Surround / 5.1 case Tech 3341-6: **SKIP / OUT OF SCOPE**.
 
+## Milestone 1B — Master safety DSP
+
+| Feature | Status | Notes |
+|---|---|---|
+| Reusable oversampler (1/2/4/8×) | **IMPLEMENTED** | Linear-phase polyphase FIR; see `docs/DSP.md` |
+| Oversampled saturation (tanh) | **IMPLEMENTED** | Static auto-gain optional; delay-aligned bypass |
+| Oversampled soft clipper | **IMPLEMENTED** | Soft knee; C¹ transfer |
+| Oversampled hard clipper | **IMPLEMENTED** | Clip in OS domain |
+| Look-ahead true-peak limiter | **IMPLEMENTED** | OS detect + LA; ceiling tol +0.15 dB |
+| Latency reporting == impulse | **IMPLEMENTED** | Δ ≤ 2 samples in validation |
+| Timing-aligned bypass | **IMPLEMENTED** | Dry delay = wet latency + crossfade |
+| Parameter smoothing | **IMPLEMENTED** | One-pole ~15–20 ms |
+| Master Safety Chain v1 | **IMPLEMENTED** | Input→sat?→soft\|hard?→TP lim |
+| Offline latency compensation | **IMPLEMENTED** | Trim leading latency; finalize tail |
+| Export QC | **IMPLEMENTED** | PASS/WARNING/FAIL JSON+MD |
+| `tools/dsp-validation-render` | **IMPLEMENTED** | `artifacts/dsp_validation/` |
+| Aliasing reduction vs 1× | **IMPLEMENTED** | Measured in aliasing_report |
+| Audio-thread alloc/lock/IO free | **IMPLEMENTED** | After prepare; factor change may alloc in setSettings |
+| Multiband limiter / Dynamic EQ | **MISSING** | Milestone 1C+ |
+| Mix Node VST3 | **MISSING** | Not started |
+| Auto-release heuristics | **MISSING** | Fixed release only |
+| ITU FIR inside limiter GR | **PARTIAL** | OS peak + ISP interpolants + −1 dB OS headroom clamp |
+
 ## Supporting features
 
 | Feature | Status | Notes |
 |---|---|---|
-| Official EBU fetch + SHA verify | IMPLEMENTED | WAVs gitignored; `present=24 missing=0` |
+| Official EBU fetch + SHA verify | IMPLEMENTED | WAVs gitignored |
 | Official validation artifacts | IMPLEMENTED | `metering-official-validation.*` |
 | K-weight FR matrix | IMPLEMENTED | `kweight-frequency-response.*` |
 | FIR start/end / finalize / reset tests | IMPLEMENTED | `TruePeakFirTailTests` |
-| Audio-callback safety | PARTIAL | Linux alloc hook + oversize drop; no lock/IO/JSON on callback |
 | Analyzer UI states | IMPLEMENTED | Full state set + True Peak / LRA labels |
 | ZIP packaging | IMPLEMENTED | Not an installer |
-| Milestone 1B / 1C | — | **Not started** |
+| DSP validation CI artifacts | IMPLEMENTED | Linux + Windows uploads |
+| Milestone 1C | — | **Not started** (blocked on M1B gate) |
 
 ## Gate
 
-Official vectors loaded + hashed; LUFS/LRA/TP PASS; FIR tail finalized; matrices + artifacts present; UI honest; Windows CI green for compliance commit `b3dabc2`.
+**M1A (mono/stereo): ACCEPTED.**  
+**M1B: ACCEPTED** — see `docs/M1B_EVIDENCE_REPORT.md`.
 
-**Overall M1A (mono/stereo): ACCEPTED.** Multichannel remains out of scope. Do not start Milestone 1B without explicit confirmation.
+Multichannel remains out of scope. Do not start Milestone 1C without explicit confirmation after the M1B evidence report.

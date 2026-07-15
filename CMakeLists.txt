@@ -24,6 +24,10 @@ add_library(mastering_audio_core STATIC
     modules/audio-analysis/src/LoudnessMeter.cpp
     modules/dsp/src/ProcessorChain.cpp
     modules/dsp/src/DynamicTools.cpp
+    modules/dsp/src/Oversampler.cpp
+    modules/dsp/src/NonlinearProcessors.cpp
+    modules/dsp/src/MasterSafetyChain.cpp
+    modules/dsp/src/ExportQc.cpp
     modules/assistant/src/MixAdvisor.cpp
     modules/project-bridge/src/ProjectDocument.cpp
     modules/research-export/src/ResearchExample.cpp
@@ -73,12 +77,20 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tests/RenderPathTests.cpp
         tests/ResearchExampleTests.cpp
         tests/Milestone0RegressionTests.cpp
+        tests/OversamplerTests.cpp
+        tests/MasterSafetyDspTests.cpp
+        tests/TruePeakLimiterM1BTests.cpp
     )
     target_link_libraries(mastering_audio_tests
         PRIVATE
             mastering_audio_core
             Catch2::Catch2WithMain
     )
+
+    add_executable(dsp_validation_render
+        tools/dsp-validation-render/main.cpp
+    )
+    target_link_libraries(dsp_validation_render PRIVATE mastering_audio_core)
 
     include(CTest)
     include(Catch)

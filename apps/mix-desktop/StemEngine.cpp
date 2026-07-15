@@ -1,7 +1,11 @@
 #include "mix-desktop/StemEngine.h"
+#include "mastering/dsp/ExportQc.h"
+#include "mastering/dsp/MasterSafetyChain.h"
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
+#include <vector>
 
 namespace mastering::desktop {
 
@@ -29,8 +33,17 @@ void StemEngine::prepareToPlay(int samplesPerBlockExpected, double sampleRate)
     outputSampleRate_ = sampleRate;
     blockSize_ = samplesPerBlockExpected;
     masterChain_.prepare(sampleRate, 2);
-    truePeakLimiter_.prepare(sampleRate);
-    truePeakLimiter_.setCeilingDb(-1.0);
+    masterSafety_.prepare(sampleRate, samplesPerBlockExpected, 2, 4);
+    {
+        dsp::MasterSafetySettings safety;
+        safety.limiterEnabled = true;
+        safety.limiter.ceilingDbTp = -1.0;
+        safety.limiter.lookAheadMs = 1.5;
+        safety.limiter.oversamplingFactor = 4;
+        safety.clipMode = dsp::ClipMode::none;
+        safety.saturationEnabled = false;
+        masterSafety_.setSettings(safety);
+    }
     kickBassSeparator_.prepare(sampleRate);
     kickBassSeparator_.setDepthDb(3.0);
     referenceTransport_.prepareToPlay(samplesPerBlockExpected, sampleRate);
@@ -163,7 +176,7 @@ void StemEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToF
     };
     const auto channelCount = bufferToFill.buffer->getNumChannels() > 1 ? 2 : 1;
     masterChain_.process(outputChannels.data(), channelCount, bufferToFill.numSamples);
-    truePeakLimiter_.process(outputChannels.data(), channelCount, bufferToFill.numSamples);
+    masterSafety_.process(outputChannels.data(), channelCount, bufferToFill.numSamples);
 }
 
 std::vector<project::TrackRecord> StemEngine::importFiles(
@@ -438,15 +451,29 @@ bool StemEngine::renderMaster(
     dsp::ProcessorChain master;
     master.prepare(project.sampleRate, 2);
     master.setSettings(project.masterProcessing);
-    dsp::TruePeakLimiter limiter;
-    limiter.prepare(project.sampleRate);
-    limiter.setCeilingDb(-1.0);
+    dsp::MasterSafetyChain safety;
+    safety.prepare(project.sampleRate, renderBlockSize, 2, 4);
+    {
+        dsp::MasterSafetySettings s;
+        s.limiterEnabled = true;
+        s.limiter.ceilingDbTp = project.masterProcessing.clipCeilingDb;
+        s.limiter.lookAheadMs = 1.5;
+        s.limiter.oversamplingFactor = 4;
+        s.clipMode = dsp::ClipMode::none;
+        s.saturationEnabled = false;
+        safety.setSettings(s);
+    }
     dsp::DynamicSeparator separator;
     separator.prepare(project.sampleRate);
     separator.setDepthDb(3.0);
     const auto anySolo = std::ranges::any_of(project.tracks, [](const auto& track) {
         return track.soloed;
     });
+
+    // Accumulate full render for latency trim + QC (music-length stems).
+    std::vector<std::vector<float>> rendered(2);
+    rendered[0].reserve(static_cast<std::size_t>(maximumLength) + 8192);
+    rendered[1].reserve(static_cast<std::size_t>(maximumLength) + 8192);
 
     for (juce::int64 position = 0; position < maximumLength; position += renderBlockSize) {
         const auto samples = static_cast<int>(
@@ -510,7 +537,69 @@ bool StemEngine::renderMaster(
 
         float* mixChannels[] {mix.getWritePointer(0), mix.getWritePointer(1)};
         master.process(mixChannels, 2, samples);
-        limiter.process(mixChannels, 2, samples);
+        safety.process(mixChannels, 2, samples);
+        for (int i = 0; i < samples; ++i) {
+            rendered[0].push_back(mix.getSample(0, i));
+            rendered[1].push_back(mix.getSample(1, i));
+        }
+    }
+
+    // Flush processor latency/tail.
+    const int latency = safety.latencySamples();
+    {
+        juce::AudioBuffer<float> flush(2, std::max(64, latency + 64));
+        flush.clear();
+        float* flushCh[] {flush.getWritePointer(0), flush.getWritePointer(1)};
+        safety.finalize(flushCh, 2, flush.getNumSamples());
+        for (int i = 0; i < flush.getNumSamples(); ++i) {
+            rendered[0].push_back(flush.getSample(0, i));
+            rendered[1].push_back(flush.getSample(1, i));
+        }
+    }
+
+    // Trim pure leading processing latency; preserve musical duration ≈ maximumLength.
+    const auto trim = static_cast<std::size_t>(std::max(0, latency));
+    const auto keep = static_cast<std::size_t>(maximumLength);
+    std::vector<std::vector<float>> trimmed(2);
+    for (int ch = 0; ch < 2; ++ch) {
+        if (rendered[static_cast<std::size_t>(ch)].size() <= trim) {
+            errorMessage = "Render too short after latency compensation.";
+            return false;
+        }
+        const auto begin = rendered[static_cast<std::size_t>(ch)].begin() + static_cast<std::ptrdiff_t>(trim);
+        const auto available = rendered[static_cast<std::size_t>(ch)].size() - trim;
+        const auto n = std::min(keep, available);
+        trimmed[static_cast<std::size_t>(ch)].assign(begin, begin + static_cast<std::ptrdiff_t>(n));
+    }
+
+    const auto qc = dsp::ExportQc::analyse(
+        trimmed,
+        project.sampleRate,
+        bitsPerSample,
+        safety.meters(),
+        latency,
+        project.masterProcessing.clipCeilingDb,
+        0.15);
+    {
+        const auto qcJson = destination.withFileExtension(".qc.json");
+        const auto qcMd = destination.withFileExtension(".qc.md");
+        std::ofstream(qcJson.getFullPathName().toStdString()) << dsp::ExportQc::toJson(qc);
+        std::ofstream(qcMd.getFullPathName().toStdString()) << dsp::ExportQc::toMarkdown(qc);
+    }
+    if (qc.status == dsp::QcStatus::fail) {
+        errorMessage = "Export QC FAIL: " + juce::String(qc.summary);
+        return false;
+    }
+
+    // Write compensated buffer.
+    for (std::size_t offset = 0; offset < keep; offset += static_cast<std::size_t>(renderBlockSize)) {
+        const auto samples = static_cast<int>(
+            std::min(static_cast<std::size_t>(renderBlockSize), keep - offset));
+        mix.clear();
+        for (int i = 0; i < samples; ++i) {
+            mix.setSample(0, i, trimmed[0][offset + static_cast<std::size_t>(i)]);
+            mix.setSample(1, i, trimmed[1][offset + static_cast<std::size_t>(i)]);
+        }
         if (!writer->writeFromAudioSampleBuffer(mix, 0, samples)) {
             errorMessage = "Disk write failed before the master was complete.";
             return false;

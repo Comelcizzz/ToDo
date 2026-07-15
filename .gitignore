@@ -20,6 +20,7 @@ __pycache__/
 *.py[cod]
 .venv*/
 *.joblib
+artifacts/
 testdata/official/**
 !testdata/official/
 !testdata/official/MANIFEST.md

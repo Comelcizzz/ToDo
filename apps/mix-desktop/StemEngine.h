@@ -2,6 +2,7 @@
 
 #include "mastering/assistant/MixAdvisor.h"
 #include "mastering/dsp/DynamicTools.h"
+#include "mastering/dsp/MasterSafetyChain.h"
 #include "mastering/project/ProjectDocument.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -62,7 +63,7 @@ private:
     std::unique_ptr<juce::AudioFormatReaderSource> referenceSource_;
     juce::AudioTransportSource referenceTransport_;
     dsp::ProcessorChain masterChain_;
-    dsp::TruePeakLimiter truePeakLimiter_;
+    dsp::MasterSafetyChain masterSafety_;
     dsp::DynamicSeparator kickBassSeparator_;
     std::optional<analysis::AudioMetrics> referenceMetrics_;
     MonitorSource monitorSource_ {MonitorSource::mix};

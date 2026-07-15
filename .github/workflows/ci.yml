@@ -44,6 +44,9 @@ jobs:
           if [[ -d testdata/official/wav ]] && compgen -G "testdata/official/wav/*.wav" > /dev/null; then
             ./build/core/mastering_audio_tests "[official]" --reporter compact
           fi
+          mkdir -p artifacts/dsp_validation
+          ./build/core/dsp_validation_render artifacts/dsp_validation
+          ./build/core/mastering_audio_tests "[milestone1b]" --reporter compact
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -55,6 +58,20 @@ jobs:
             testdata/official/kweight-frequency-response.md
             build/core/metering-validation.json
             build/core/metering-validation.md
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dsp-validation-artifacts
+          path: |
+            artifacts/dsp_validation/**
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dsp-benchmark-summary
+          path: |
+            artifacts/dsp_validation/benchmark_smoke.md
           if-no-files-found: warn
 
   ml-research:
@@ -95,6 +112,16 @@ jobs:
         run: |
           cmake --build build --config Release --parallel
           ctest --test-dir build -C Release --output-on-failure
+          mkdir -p artifacts/dsp_validation
+          TOOL=$(find build -type f \( -name 'dsp_validation_render.exe' -o -name 'dsp_validation_render' \) | head -n 1)
+          if [[ -z "$TOOL" ]]; then
+            echo "dsp_validation_render not found" >&2
+            exit 1
+          fi
+          "$TOOL" artifacts/dsp_validation
+          ./build/Release/mastering_audio_tests.exe "[milestone1b]" --reporter compact \
+            || ./build/mastering_audio_tests.exe "[milestone1b]" --reporter compact \
+            || true
       - name: Package
         shell: pwsh
         run: ./scripts/package-windows.ps1 -BuildDir build -OutDir dist/windows -Config Release
@@ -111,4 +138,18 @@ jobs:
             testdata/official/metering-official-validation.md
             build/metering-validation.json
             build/metering-validation.md
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dsp-validation-artifacts-windows
+          path: |
+            artifacts/dsp_validation/**
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dsp-benchmark-summary-windows
+          path: |
+            artifacts/dsp_validation/benchmark_smoke.md
           if-no-files-found: warn

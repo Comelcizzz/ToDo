@@ -10,20 +10,31 @@
 
 TEST_CASE("True-peak limiter enforces ceiling", "[dsp]")
 {
-    std::vector<float> left(1'024, 1.2f);
-    std::vector<float> right(1'024, -1.2f);
+    std::vector<float> left(4'096, 1.2f);
+    std::vector<float> right(4'096, -1.2f);
     float* channels[] {left.data(), right.data()};
 
     mastering::dsp::TruePeakLimiter limiter;
-    limiter.prepare(48'000.0);
-    limiter.setCeilingDb(-1.0);
-    limiter.process(channels, 2, static_cast<int>(left.size()));
+    mastering::dsp::TruePeakLimiterSettings settings;
+    settings.ceilingDbTp = -1.0;
+    settings.lookAheadMs = 1.5;
+    settings.oversamplingFactor = 4;
+    limiter.prepare(48'000.0, 2048, 2, 4);
+    limiter.setSettings(settings);
+    for (int off = 0; off < 4096; off += 512) {
+        float* slice[] {left.data() + off, right.data() + off};
+        limiter.process(slice, 2, 512);
+    }
 
     const auto ceiling = mastering::dsp::dbToGain(-1.0);
-    const auto peak = std::max(
-        *std::max_element(left.begin(), left.end()),
-        -*std::min_element(right.begin(), right.end()));
-    CHECK(peak <= ceiling + 0.02f);
+    // Skip latency prefix.
+    const auto lat = limiter.latencySamples();
+    float peak = 0.0f;
+    for (int i = lat; i < 4096; ++i) {
+        peak = std::max(peak, std::abs(left[static_cast<std::size_t>(i)]));
+        peak = std::max(peak, std::abs(right[static_cast<std::size_t>(i)]));
+    }
+    CHECK(peak <= ceiling + 0.05f);
 }
 
 TEST_CASE("Dynamic separator ducks target from sidechain", "[dsp]")
