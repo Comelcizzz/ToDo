@@ -526,7 +526,8 @@ void MainComponent::chooseMasterDestination(int bitsPerSample)
                     safeThis->project_,
                     chooser.getResult().withFileExtension("wav"),
                     bitsPerSample,
-                    error)) {
+                    error,
+                    safeThis->engine_.compareMode())) {
                 juce::AlertWindow::showMessageBoxAsync(
                     juce::MessageBoxIconType::WarningIcon,
                     "Export failed",
