@@ -6,7 +6,7 @@
 |---|---|
 | Branch | `cursor/mastering-audio-932f` |
 | PR | https://github.com/Comelcizzz/ToDo/pull/1 |
-| SHA | _(filled after commit)_ |
+| SHA | `e4d2d995f1046be56dcc51a2aa005d94c37377cb` |
 | CI | _(filled after green run)_ |
 
 ## B. Mix Node architecture
