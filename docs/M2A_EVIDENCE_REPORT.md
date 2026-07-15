@@ -6,8 +6,9 @@
 |---|---|
 | Branch | `cursor/mastering-audio-932f` |
 | PR | https://github.com/Comelcizzz/ToDo/pull/1 |
-| SHA | `e4d2d995f1046be56dcc51a2aa005d94c37377cb` |
-| CI | _(filled after green run)_ |
+| Implementation SHA | `e4d2d995f1046be56dcc51a2aa005d94c37377cb` |
+| Tip SHA | `747d1ac` (installer packaging fix) |
+| CI (green) | https://github.com/Comelcizzz/ToDo/actions/runs/29387106980 |
 
 ## B. Mix Node architecture
 
