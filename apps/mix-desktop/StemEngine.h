@@ -1,9 +1,11 @@
 #pragma once
 
 #include "mastering/assistant/MixAdvisor.h"
+#include "mastering/assistant/SectionAutomation.h"
 #include "mastering/dsp/DynamicEq.h"
 #include "mastering/dsp/DynamicTools.h"
 #include "mastering/dsp/MasterSafetyChain.h"
+#include "mastering/dsp/VocalRider.h"
 #include "mastering/project/ProjectDocument.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -40,6 +42,7 @@ public:
     void updateTrack(const project::TrackRecord& track);
     void applyPlan(const assistant::MixPlan& plan);
     void applyMixPassAction(const project::MixPassAction& action);
+    void setSectionAutomation(const assistant::SectionAutomationState& state);
     [[nodiscard]] bool loadReference(const juce::File& file, juce::String& errorMessage);
     void clearReference();
     void setMonitorSource(MonitorSource source);
@@ -59,7 +62,8 @@ public:
         const project::ProjectDocument& project,
         const juce::File& destination,
         int bitsPerSample,
-        juce::String& errorMessage);
+        juce::String& errorMessage,
+        CompareMode mode = CompareMode::current);
 
 private:
     struct PlaybackTrack;
@@ -76,6 +80,8 @@ private:
     dsp::ProcessorChain masterChain_;
     dsp::MasterSafetyChain masterSafety_;
     dsp::DynamicSeparator kickBassSeparator_;
+    assistant::SectionAutomationState sectionAutomation_;
+    project::ProjectDocument sectionProject_;
     std::optional<analysis::AudioMetrics> referenceMetrics_;
     MonitorSource monitorSource_ {MonitorSource::mix};
     CompareMode compareMode_ {CompareMode::current};

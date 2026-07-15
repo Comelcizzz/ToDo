@@ -49,28 +49,43 @@ Dynamic EQ + FD sidechain + detector: **IMPLEMENTED**. **M1C ACCEPTED**.
 | Feature | Status | Notes |
 |---|---|---|
 | Stem import WAV/AIFF | **IMPLEMENTED** | Suite desktop |
-| Track / pair / bus hierarchy | **IMPLEMENTED** | `MetalcoreMixPass::ensureHierarchy` |
-| Rhythm Guitar L/R separate + pair | **IMPLEMENTED** | no auto time/phase align |
-| BPM + manual section markers | **IMPLEMENTED** | intro…outro + custom |
-| Actionable MixPassAction DSP | **IMPLEMENTED** | absolute processor state |
-| Kick/bass FD DynEQ Actions | **IMPLEMENTED** | not broadband duck when DynEQ on |
-| Guitar L/R balance / mud / harshness | **IMPLEMENTED** | pair-scope options |
-| Vocal/guitar unmask Actions | **IMPLEMENTED** | DynEQ + riding |
-| Snare/guitar unmask Actions | **IMPLEMENTED** | DynEQ |
-| Preview / Apply / Reject / Edit | **IMPLEMENTED** | Suite UI + engine |
-| Idempotent Apply | **IMPLEMENTED** | unit tested |
-| Undo / Redo | **IMPLEMENTED** | |
-| RAW / AUTO / CURRENT / REF compare | **IMPLEMENTED** | loudness-matched REF |
-| Save / reopen MixPlan + DynEQ | **IMPLEMENTED** | schema v3 |
-| Master export + QC | **IMPLEMENTED** | DynEQ on render path |
-| Synthetic benchmark layout | **IMPLEMENTED** | `benchmarks/personal/` (no copyrighted audio) |
-| Mix Pass tests + validation tool | **IMPLEMENTED** | `[milestone3a]` + `mixpass_validation` |
-| Suite / Analyzer / Mix Node / installer / ZIP CI | **IMPLEMENTED** | continues from M2A |
-| FL-specific Mix Node features | **NOT VERIFIED IN FL** | unchanged |
-| Installer manual validation | **NOT MANUALLY VERIFIED** | unchanged |
-| ML Lab | **MISSING** | not started |
+| Track / pair / bus hierarchy | **IMPLEMENTED** | |
+| Rhythm Guitar L/R + pair | **IMPLEMENTED** | no auto align |
+| BPM + manual sections | **IMPLEMENTED** | |
+| Actionable MixPassAction | **IMPLEMENTED** | |
+| Save/reopen schema | **IMPLEMENTED** | v3→v4 in M3B |
+| Synthetic M3A validation | **IMPLEMENTED** | not musical proof |
+| Detection quality | **HEURISTIC / HARDCODED** | see `docs/M3A_TRUTH_AUDIT.md` |
 
-**Gate:** see `docs/M3A_EVIDENCE_REPORT.md` (automated acceptance).
+**Gate:** **M3A ACCEPTED** as automated vertical slice (not professional mix quality).
+
+## Milestone 3B — Adaptive Mix Engine + Action quality
+
+| Feature | Status | Notes |
+|---|---|---|
+| M3A truth audit | **IMPLEMENTED** | `docs/M3A_TRUTH_AUDIT.md` |
+| Adaptive kick/bass F0 peaks | **IMPLEMENTED** | Goertzel peaks; no fixed 65/70 production path |
+| Sub ownership decision trace | **IMPLEMENTED** | |
+| Complementary EQ evidence gate | **IMPLEMENTED** | prefer cut; no blind boost |
+| Guitar mud/harsh/fizz detectors | **IMPLEMENTED** | separate |
+| Processing-level resolver | **IMPLEMENTED** | track/pair/bus |
+| ActionResolver conflicts + order | **IMPLEMENTED** | |
+| VocalRider real DSP | **IMPLEMENTED** | |
+| Serial/peak vocal stages | **IMPLEMENTED** | separate Actions |
+| De-ess / resonance DynEQ | **IMPLEMENTED** | |
+| Clean vs scream logic | **IMPLEMENTED** | |
+| Vocal activity–gated unmask | **IMPLEMENTED** | |
+| Event-based snare unmask | **IMPLEMENTED** | |
+| No snare-as-drum-bus fallback | **IMPLEMENTED** | `drumBusUnavailable` |
+| Section automation render | **IMPLEMENTED** | StemEngine + offline |
+| Reference Profile v2 + roles | **IMPLEMENTED** | |
+| True RAW/AUTO/CURRENT paths | **IMPLEMENTED** | Suite render modes |
+| Loudness match documented | **IMPLEMENTED** | REF LUFS; validation RMS match |
+| Long synthetic + scenarios A–G | **IMPLEMENTED** | `[milestone3b]` |
+| ML Lab | **MISSING** | not started |
+| FL / installer manual | **NOT VERIFIED** | postponed |
+
+**Gate:** see `docs/M3B_EVIDENCE_REPORT.md`.
 
 ## Manual validation checklist
 

@@ -1,4 +1,6 @@
 #include "mix-desktop/MainComponent.h"
+#include "mastering/assistant/MetalcoreAnalysis.h"
+#include "mastering/assistant/SectionAutomation.h"
 #include "mastering/ipc/BridgeProtocol.h"
 #include "mastering/ipc/MixNodeProtocol.h"
 #include "mastering/research/ResearchExample.h"
@@ -710,9 +712,83 @@ void MainComponent::generateMetalcoreMixPass()
     analysisStatus_ = "analyzing";
     pushState();
     assistant::MetalcoreMixPass::ensureHierarchy(project_);
+
+    assistant::MetalcoreMixPass::AnalysisMap analysis;
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    for (const auto& track : project_.tracks) {
+        assistant::TrackAnalysisExtras extras;
+        extras.trackId = track.id;
+        extras.role = track.role;
+        extras.metrics = track.metrics;
+        if (!track.audioPath.empty()) {
+            if (auto reader = std::unique_ptr<juce::AudioFormatReader>(
+                    formats.createReaderFor(juce::File(track.audioPath)))) {
+                const auto frames = static_cast<int>(std::min<double>(
+                    reader->lengthInSamples,
+                    reader->sampleRate * 60.0));
+                const auto ch = juce::jlimit(1, 2, static_cast<int>(reader->numChannels));
+                juce::AudioBuffer<float> buffer(ch, frames);
+                reader->read(&buffer, 0, frames, 0, true, ch > 1);
+                std::vector<std::vector<float>> channels(
+                    static_cast<std::size_t>(ch),
+                    std::vector<float>(static_cast<std::size_t>(frames)));
+                for (int c = 0; c < ch; ++c)
+                    std::copy_n(
+                        buffer.getReadPointer(c),
+                        frames,
+                        channels[static_cast<std::size_t>(c)].begin());
+                const auto mono = assistant::mixToMono(channels);
+                const auto sr = reader->sampleRate;
+                if (track.role == project::TrackRole::kick)
+                    extras.low = assistant::MetalcoreAnalysis::analyzeKickLow(mono, sr);
+                else if (track.role == project::TrackRole::bass)
+                    extras.low = assistant::MetalcoreAnalysis::analyzeBassLow(mono, sr);
+                else if (track.role == project::TrackRole::rhythmGuitarLeft
+                    || track.role == project::TrackRole::rhythmGuitarRight
+                    || track.role == project::TrackRole::rhythmGuitar)
+                    extras.guitar = assistant::MetalcoreAnalysis::analyzeGuitar(
+                        mono,
+                        sr,
+                        track.metrics);
+                else if (track.role == project::TrackRole::cleanVocal
+                    || track.role == project::TrackRole::screamVocal
+                    || track.role == project::TrackRole::backingVocal)
+                    extras.vocal = assistant::MetalcoreAnalysis::analyzeVocal(
+                        mono,
+                        sr,
+                        track.metrics,
+                        track.role);
+                else if (track.role == project::TrackRole::snare)
+                    extras.snare = assistant::MetalcoreAnalysis::analyzeSnare(
+                        mono,
+                        sr,
+                        track.metrics);
+            }
+        }
+        analysis.emplace(track.id, std::move(extras));
+    }
+
+    std::vector<assistant::ReferenceProfile> references;
+    if (referenceMetrics_) {
+        references.push_back(assistant::MetalcoreAnalysis::buildReferenceProfile(
+            *referenceMetrics_,
+            "overall"));
+        references.push_back(assistant::MetalcoreAnalysis::buildReferenceProfile(
+            *referenceMetrics_,
+            "vocal-balance"));
+        references.push_back(assistant::MetalcoreAnalysis::buildReferenceProfile(
+            *referenceMetrics_,
+            "low-end"));
+    }
+
     assistant::MetalcoreMixPass::Options options;
     options.bpm = project_.bpm;
-    project_.mixPassActions = mixPass_.generateActions(project_, referenceMetrics_, options);
+    options.allowSyntheticFrequencyFallback = false;
+    project_.mixPassActions = mixPass_.generateActions(project_, analysis, references, options);
+    const auto automation = assistant::SectionAutomation::fromActions(project_.mixPassActions);
+    engine_.setSectionAutomation(automation);
+    engine_.loadProject(project_); // refresh section project copy
     mixPassUndoStack_.clear();
     mixPassRedoStack_.clear();
     analysisStatus_ = "ready";
