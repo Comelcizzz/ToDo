@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { sendCommand } from "../nativeBridge";
 import { trackRoleOptions, type MixPassAction, type SuiteState } from "../types";
 import { MixNodesPanel } from "./MixNodesPanel";
@@ -14,6 +15,54 @@ function trackName(state: SuiteState, id: string) {
   return state.tracks.find((track) => track.id === id)?.name ?? id.slice(0, 8);
 }
 
+function evidenceText(action: MixPassAction) {
+  if (action.evidenceLabel) return action.evidenceLabel;
+  const score = action.evidenceScore ?? action.confidence;
+  if (score >= 0.7) return "High evidence";
+  if (score >= 0.4) return "Medium evidence";
+  return "Low evidence";
+}
+
+type ActionFilter =
+  | "all"
+  | "critical"
+  | "high-evidence"
+  | "low-end"
+  | "guitars"
+  | "vocals"
+  | "drums"
+  | "sections"
+  | "reference"
+  | "technical";
+
+function matchesFilter(action: MixPassAction, filter: ActionFilter): boolean {
+  if (filter === "all") return true;
+  const p = action.problemType.toLowerCase();
+  const score = action.evidenceScore ?? action.confidence;
+  switch (filter) {
+    case "critical":
+      return score >= 0.7 && action.state !== "rejected";
+    case "high-evidence":
+      return score >= 0.7 || (action.evidenceLabel ?? "").toLowerCase().includes("high");
+    case "low-end":
+      return p.includes("kick") || p.includes("bass") || p.includes("sub");
+    case "guitars":
+      return p.includes("guitar") || p.includes("fizz") || p.includes("mud") || p.includes("harsh");
+    case "vocals":
+      return p.includes("vocal") || p.includes("deess") || p.includes("resonance") || p.includes("ride");
+    case "drums":
+      return p.includes("snare") || p.includes("drum") || p.includes("parallel");
+    case "sections":
+      return !!action.sectionScope && action.sectionScope !== "full";
+    case "reference":
+      return p.includes("reference");
+    case "technical":
+      return p.includes("unavailable") || p.includes("qc") || p.includes("technical");
+    default:
+      return true;
+  }
+}
+
 function ActionCard({
   action,
   state,
@@ -25,7 +74,7 @@ function ActionCard({
     <article className="suggestion" key={action.actionId}>
       <div>
         <span>{action.problemType}</span>
-        <strong>{Math.round(action.confidence * 100)}%</strong>
+        <strong>{evidenceText(action)}</strong>
       </div>
       <h3>
         {action.processorId}/{action.parameterId} → {trackName(state, action.targetTrackId)}
@@ -34,10 +83,17 @@ function ActionCard({
       <p className="assistant__intro">
         {action.currentValue.toFixed(2)} → {action.proposedValue.toFixed(2)} (
         {action.allowedMin.toFixed(1)}…{action.allowedMax.toFixed(1)}) · {action.state}
+        {action.processingLevel ? ` · ${action.processingLevel}` : ""}
         {action.sectionScope && action.sectionScope !== "full"
           ? ` · section ${action.sectionScope.slice(0, 6)}`
           : ""}
       </p>
+      {action.decisionTrace && (
+        <p className="assistant__intro">
+          Trace: {action.decisionTrace.slice(0, 220)}
+          {action.decisionTrace.length > 220 ? "…" : ""}
+        </p>
+      )}
       <label className="compact-control">
         <span>Edit proposed</span>
         <input
@@ -100,6 +156,11 @@ export function MixerView({ state }: { state: SuiteState }) {
   const pairs = state.pairs ?? [];
   const buses = state.buses ?? [];
   const sections = state.sections ?? [];
+  const [actionFilter, setActionFilter] = useState<ActionFilter>("all");
+  const filteredActions = useMemo(
+    () => actions.filter((action) => matchesFilter(action, actionFilter)),
+    [actions, actionFilter],
+  );
 
   return (
     <main className="desktop-layout">
@@ -454,6 +515,12 @@ export function MixerView({ state }: { state: SuiteState }) {
             >
               Run Metalcore Mix Pass
             </button>
+            <p className="assistant__intro">
+              Analysis: {state.analysisStatus ?? "idle"}
+              {typeof state.referenceGainDb === "number"
+                ? ` · REF match ${state.referenceGainDb.toFixed(1)} dB`
+                : ""}
+            </p>
 
             <div className="variant-row">
               <button
@@ -472,11 +539,36 @@ export function MixerView({ state }: { state: SuiteState }) {
               </button>
             </div>
 
+            <div className="variant-row">
+              {(
+                [
+                  "all",
+                  "critical",
+                  "high-evidence",
+                  "low-end",
+                  "guitars",
+                  "vocals",
+                  "drums",
+                  "sections",
+                  "reference",
+                  "technical",
+                ] as const
+              ).map((filter) => (
+                <button
+                  key={filter}
+                  className={actionFilter === filter ? "button button--primary" : "button"}
+                  onClick={() => setActionFilter(filter)}
+                >
+                  {filter}
+                </button>
+              ))}
+            </div>
+
             <div className="suggestion-list">
-              {actions.length === 0 ? (
-                <p className="assistant__intro">No Mix Pass actions yet.</p>
+              {filteredActions.length === 0 ? (
+                <p className="assistant__intro">No Mix Pass actions for this filter.</p>
               ) : (
-                actions.map((action) => (
+                filteredActions.map((action) => (
                   <ActionCard key={action.actionId} action={action} state={state} />
                 ))
               )}

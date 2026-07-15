@@ -10,7 +10,7 @@ Mandatory limitations (honest):
 - Installer manual validation remains **NOT MANUALLY VERIFIED**.
 - No ML Lab / production ML / arrangement editing / “universal perfect mix” claim.
 - Blind A/B/C package is a packaging/listening aid on synthetic (or supplied) renders — not a quality certificate.
-- Suite StemEngine still may use shorter analysis windows in UI paths; core M3C streaming path is proven in library + validation tool.
+- Practical analysis duration cap is **30 minutes** per stem (`kMaxAnalysisSeconds`); longer material is truncated with that documented limit.
 
 M2A remains: `PARTIAL — MANUAL FL STUDIO AND INSTALLER VALIDATION POSTPONED`.
 
@@ -103,7 +103,10 @@ Exit 0 when smoke gates pass (actions, ≥90 s streaming, integrated-lufs, blind
 
 ## O. Suite / StemEngine integration
 
-M3C core DSP/analysis libraries are linked into the Suite product tree. Full UI/host wiring of StreamingAnalyzer for unlimited track length and render-identity export in the desktop app may still be **PARTIAL** relative to library completeness — do not claim Suite already streams 30-minute stems end-to-end without checking `MainComponent` / `StemEngine` paths.
+- `MainComponent::generateMetalcoreMixPass` streams each stem via `StreamingAnalyzer` (4096 chunks) up to `kMaxAnalysisSeconds` (30 min) with `analyzing XX%` progress — **no silent 60 s cap**.
+- StemEngine: ParallelCompressor on drum-bus / `parallelEnabled`; StereoWidth when enabled; multi-param section offsets; `compareMatchGainDb_` LUFS makeup for fair A/B.
+- AUTO = project after auto-accept of evidence ≥ 0.45; CURRENT = committed; RAW = dry.
+- Schema **v5** persists parallel/width + budget/identity fields.
 
 ## P. Performance
 

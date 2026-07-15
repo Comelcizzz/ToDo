@@ -109,8 +109,13 @@ export interface MixPassAction {
   allowedMin: number;
   allowedMax: number;
   confidence: number;
+  evidenceScore?: number;
+  evidenceLabel?: string;
   explanation: string;
   sourceMetrics?: string;
+  evidence?: string;
+  decisionTrace?: string;
+  processingLevel?: string;
   sectionScope?: string;
   state: string;
   origin?: string;
