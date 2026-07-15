@@ -74,6 +74,7 @@ void ParallelCompressor::process(float* const* channels, int channelCount, int s
     if (channels == nullptr || sampleCount <= 0)
         return;
     channelCount = std::clamp(channelCount, 1, channels_);
+    sampleCount = std::min(sampleCount, maxBlock_);
 
     double grSum = 0.0;
     double wetSum = 0.0;
