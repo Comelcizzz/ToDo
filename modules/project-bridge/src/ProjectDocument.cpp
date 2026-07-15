@@ -439,6 +439,10 @@ std::string serialize(const ProjectDocument& project)
         {"masterDynamicEqEnabled", project.masterDynamicEqEnabled},
         {"sectionAutomationJson", project.sectionAutomationJson},
         {"virtualDrumBusEnabled", project.virtualDrumBusEnabled},
+        {"analysisTruncated", project.analysisTruncated},
+        {"analyzedDurationSeconds", project.analyzedDurationSeconds},
+        {"originalDurationSeconds", project.originalDurationSeconds},
+        {"analysisDurationWarning", project.analysisDurationWarning},
         {"actionBudgetJson", project.actionBudgetJson},
         {"analysisCacheVersion", project.analysisCacheVersion},
         {"renderIdentityJson", project.renderIdentityJson},
@@ -551,6 +555,11 @@ std::string serialize(const ProjectDocument& project)
             {"confidence", action.confidence},
             {"evidenceScore", action.evidenceScore},
             {"evidenceLabel", action.evidenceLabel},
+            {"riskLevel", action.riskLevel},
+            {"autoApplyEligibility", action.autoApplyEligibility},
+            {"autoApplyReason", action.autoApplyReason},
+            {"requiredEvidence", action.requiredEvidence},
+            {"actualEvidence", action.actualEvidence},
             {"explanation", action.explanation},
             {"sourceMetrics", action.sourceMetrics},
             {"evidence", action.evidence},
@@ -623,6 +632,10 @@ std::optional<ProjectDocument> deserialize(std::string_view source, DeserializeE
         read(value, "selectedVariant", project.selectedVariant);
         read(value, "sectionAutomationJson", project.sectionAutomationJson);
         read(value, "virtualDrumBusEnabled", project.virtualDrumBusEnabled);
+        read(value, "analysisTruncated", project.analysisTruncated);
+        read(value, "analyzedDurationSeconds", project.analyzedDurationSeconds);
+        read(value, "originalDurationSeconds", project.originalDurationSeconds);
+        read(value, "analysisDurationWarning", project.analysisDurationWarning);
         read(value, "actionBudgetJson", project.actionBudgetJson);
         read(value, "analysisCacheVersion", project.analysisCacheVersion);
         read(value, "renderIdentityJson", project.renderIdentityJson);
@@ -788,6 +801,11 @@ std::optional<ProjectDocument> deserialize(std::string_view source, DeserializeE
                 read(actionValue, "confidence", action.confidence);
                 read(actionValue, "evidenceScore", action.evidenceScore);
                 read(actionValue, "evidenceLabel", action.evidenceLabel);
+                read(actionValue, "riskLevel", action.riskLevel);
+                read(actionValue, "autoApplyEligibility", action.autoApplyEligibility);
+                read(actionValue, "autoApplyReason", action.autoApplyReason);
+                read(actionValue, "requiredEvidence", action.requiredEvidence);
+                read(actionValue, "actualEvidence", action.actualEvidence);
                 read(actionValue, "explanation", action.explanation);
                 read(actionValue, "sourceMetrics", action.sourceMetrics);
                 read(actionValue, "evidence", action.evidence);

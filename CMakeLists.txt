@@ -24,6 +24,8 @@ add_library(mastering_audio_core STATIC
     modules/audio-analysis/src/LoudnessMeter.cpp
     modules/audio-analysis/src/SpectralAnalysis.cpp
     modules/audio-analysis/src/StreamingAnalyzer.cpp
+    modules/audio-analysis/src/Sha256.cpp
+    modules/audio-analysis/src/AnalysisFingerprint.cpp
     modules/dsp/src/ProcessorChain.cpp
     modules/dsp/src/DynamicTools.cpp
     modules/dsp/src/Oversampler.cpp
@@ -44,6 +46,8 @@ add_library(mastering_audio_core STATIC
     modules/assistant/src/ActionBudget.cpp
     modules/assistant/src/LoudnessMatch.cpp
     modules/assistant/src/RenderIdentity.cpp
+    modules/assistant/src/AutoApplyPolicy.cpp
+    modules/assistant/src/RealtimeOfflineCompare.cpp
     modules/dsp/src/VocalRider.cpp
     modules/project-bridge/src/ProjectDocument.cpp
     modules/research-export/src/ResearchExample.cpp
@@ -104,6 +108,7 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tests/MetalcoreMixPassTests.cpp
         tests/MetalcoreEngineM3BTests.cpp
         tests/MetalcoreEngineM3CTests.cpp
+        tests/MetalcoreEngineM3CVerificationTests.cpp
     )
     target_link_libraries(mastering_audio_tests
         PRIVATE

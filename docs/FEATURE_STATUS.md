@@ -91,28 +91,31 @@ Dynamic EQ + FD sidechain + detector: **IMPLEMENTED**. **M1C ACCEPTED**.
 
 | Feature | Status | Notes |
 |---|---|---|
-| StreamingAnalyzer full-track | **IMPLEMENTED** | chunked; cancel; cache key; ≤30 min |
+| StreamingAnalyzer full-track | **IMPLEMENTED** | chunked; cancel; layered cache fingerprint; ≤30 min |
 | Kick/snare events + min spacing | **IMPLEMENTED** | heuristic; synthetic tests |
 | Bass occupancy bins | **IMPLEMENTED** | 30–180 Hz |
 | Section automation multi-param | **IMPLEMENTED** | dynMaxCutDb and related lanes |
 | ParallelCompressor real wet/dry | **IMPLEMENTED** | 0 latency; validation AUTO bus |
-| StereoWidth M/S + low mono | **IMPLEMENTED** | correlation guard |
-| LoudnessMatch LUFS policy | **IMPLEMENTED** | integrated / short-term / bounded-RMS |
-| ActionBudget | **IMPLEMENTED** | evidence-preferential |
+| StereoWidth complementary M/S | **IMPLEMENTED** | complementary one-pole side split; unity/mono tests |
+| LoudnessMatch LUFS policy | **IMPLEMENTED** | M1A LoudnessMeter integrated / short-term / bounded-RMS |
+| ActionBudget | **IMPLEMENTED** | post-resolver; rejected conflicts not budgeted |
 | EvidenceModel + safe ranges | **IMPLEMENTED** | Low/Medium/High labels |
-| RenderIdentity hashes | **IMPLEMENTED** | `render_identity.json` |
+| RenderIdentity graphId vs SHA-256 | **IMPLEMENTED** | FNV graph ID; SHA-256 artifact integrity |
+| Risk-aware AUTO policy | **IMPLEMENTED** | not universal 0.45; musical → Preview |
+| Suite RT/offline compare | **IMPLEMENTED** | StemEngine-equivalent DSP battery |
+| 30-min truncation reporting | **IMPLEMENTED** | UI warn + evidence penalty + report fields |
 | Blind A/B/C package | **IMPLEMENTED** | randomized; answer_key hidden |
 | 90s metalcore_engine_validation | **IMPLEMENTED** | StreamingAnalyzer evidence |
-| `[milestone3c]` tests | **IMPLEMENTED** | Catch2 |
+| `[milestone3c]` tests | **IMPLEMENTED** | Catch2 + verification suite |
 | Suite UI unlimited streaming | **IMPLEMENTED** | Mix Pass uses StreamingAnalyzer; ≤kMaxAnalysisSeconds |
-| AUTO auto-accept evidence≥0.45 | **IMPLEMENTED** | generate applies high-evidence defaults |
 | StemEngine parallel/width + LUFS A/B | **IMPLEMENTED** | compareMatchGainDb_ monitor makeup |
-| Project schema v5 | **IMPLEMENTED** | parallel/width + budget/identity fields |
+| Project schema v5 | **IMPLEMENTED** | parallel/width + budget/identity/truncation fields |
 | Musical quality | **NOT CLAIMED** | synthetic ≠ mix proof |
+| Final Linux/Windows CI gate | **PENDING** | see `docs/M3C_FINAL_VERIFICATION.md` |
 | ML Lab | **MISSING** | not started |
 | FL / installer manual | **NOT VERIFIED** | postponed |
 
-**Gate:** see `docs/M3C_EVIDENCE_REPORT.md`.
+**Gate:** `MILESTONE 3C REMAINS PARTIAL` until tip CI green — `docs/M3C_FINAL_VERIFICATION.md`.
 
 ## Manual validation checklist
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mastering/analysis/AnalysisFingerprint.h"
 #include "mastering/analysis/AudioAnalyzer.h"
 #include "mastering/analysis/SpectralAnalysis.h"
 
@@ -144,6 +145,9 @@ struct StreamingAnalysisResult {
     std::vector<SpectralPeak> spectralPeakCandidates;
     bool cancelled {false};
     bool truncated {false}; // hit kMaxAnalysisSeconds
+    double analyzedDurationSeconds {0.0};
+    double originalDurationSeconds {0.0}; // set by caller when known (> analyzed if truncated)
+    double evidencePenalty {0.0}; // >0 when truncated; Mix Pass should reduce confidence
 };
 
 struct AnalysisSectionMarker {
@@ -165,11 +169,15 @@ public:
         std::string trackId,
         std::uint64_t fileSize,
         std::uint64_t mtimeHash);
+    // Layered fingerprint identity (preferred). Replaces thin trackId|size|mtime key.
+    void setFingerprint(AnalysisFingerprint fingerprint);
+    void setOriginalDurationSeconds(double seconds) noexcept { originalDurationSeconds_ = seconds; }
     void setSectionMarkers(std::vector<AnalysisSectionMarker> sections);
 
     [[nodiscard]] double progress() const noexcept { return progress_; }
     [[nodiscard]] bool isCancelled() const noexcept;
     [[nodiscard]] std::string cacheKey() const;
+    [[nodiscard]] const AnalysisFingerprint& fingerprint() const noexcept { return fingerprint_; }
 
     // Full pass via pull callback. Callback returns false on EOF / error.
     // framesRead must be set to samples written (0..maxFrames).
@@ -198,6 +206,8 @@ private:
     std::string trackId_;
     std::uint64_t fileSize_ {0};
     std::uint64_t mtimeHash_ {0};
+    AnalysisFingerprint fingerprint_;
+    double originalDurationSeconds_ {0.0};
     std::vector<AnalysisSectionMarker> sections_;
 
     double sampleRate_ {48'000.0};

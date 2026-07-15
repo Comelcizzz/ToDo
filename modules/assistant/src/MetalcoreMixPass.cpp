@@ -1,6 +1,7 @@
 #include "mastering/assistant/MetalcoreMixPass.h"
 #include "mastering/assistant/ActionBudget.h"
 #include "mastering/assistant/ActionResolver.h"
+#include "mastering/assistant/AutoApplyPolicy.h"
 #include "mastering/assistant/EvidenceModel.h"
 #include "mastering/assistant/MetalcoreAnalysis.h"
 #include "mastering/assistant/SectionAutomation.h"
@@ -1520,9 +1521,24 @@ std::vector<project::MixPassAction> MetalcoreMixPass::generateActions(
     for (std::size_t i = 0; i < budgeted.size(); ++i)
         budgeted[i].orderIndex = static_cast<int>(i);
 
+    double truncationPenalty = 0.0;
+    for (const auto& [trackId, extras] : analysis) {
+        (void) trackId;
+        truncationPenalty = std::max(truncationPenalty, extras.evidencePenalty);
+    }
+
     for (auto& action : budgeted) {
         if (action.state == "rejected")
             continue;
+        if (truncationPenalty > 0.0) {
+            action.evidenceScore = std::clamp(action.evidenceScore - truncationPenalty, 0.0, 1.0);
+            action.confidence = std::clamp(action.confidence - truncationPenalty, 0.0, 1.0);
+            if (!action.decisionTrace.empty())
+                action.decisionTrace += " | ";
+            action.decisionTrace +=
+                "truncated-analysis-evidence-penalty=" + std::to_string(truncationPenalty)
+                + " (not full-track)";
+        }
         // Ensure DynEQ / gain proposals carry a SafeRangeDerivation.trace when missing.
         if ((action.processorId == "dynamicEq" || action.processorId == "gain"
                 || action.processorId == "outputGain")
@@ -1542,6 +1558,9 @@ std::vector<project::MixPassAction> MetalcoreMixPass::generateActions(
             appendEvidenceBreakdown(action, ev);
         }
     }
+
+    // Risk classification + AUTO eligibility AFTER budget (never use universal 0.45).
+    annotateAutoApplyEligibility(budgeted);
     return budgeted;
 }
 

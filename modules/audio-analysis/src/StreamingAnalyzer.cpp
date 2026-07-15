@@ -131,11 +131,32 @@ void StreamingAnalyzer::setTrackIdentity(
     trackId_ = std::move(trackId);
     fileSize_ = fileSize;
     mtimeHash_ = mtimeHash;
+    fingerprint_.assetId = trackId_;
+    fingerprint_.fileSize = fileSize_;
+    fingerprint_.mtimeHash = mtimeHash_;
+}
+
+void StreamingAnalyzer::setFingerprint(AnalysisFingerprint fingerprint)
+{
+    fingerprint_ = std::move(fingerprint);
+    trackId_ = fingerprint_.assetId;
+    fileSize_ = fingerprint_.fileSize;
+    mtimeHash_ = fingerprint_.mtimeHash;
 }
 
 void StreamingAnalyzer::setSectionMarkers(std::vector<AnalysisSectionMarker> sections)
 {
     sections_ = std::move(sections);
+    std::ostringstream oss;
+    oss << '[';
+    for (std::size_t i = 0; i < sections_.size(); ++i) {
+        if (i > 0)
+            oss << ',';
+        oss << sections_[i].id << ':' << sections_[i].startSeconds << '-'
+            << sections_[i].endSeconds;
+    }
+    oss << ']';
+    fingerprint_.sectionMapHash = hashSectionMap(oss.str());
 }
 
 bool StreamingAnalyzer::isCancelled() const noexcept
@@ -145,7 +166,15 @@ bool StreamingAnalyzer::isCancelled() const noexcept
 
 std::string StreamingAnalyzer::cacheKey() const
 {
-    // trackId + fileSize + mtime hash string
+    // Layered fingerprint when content/settings/role/section identity is present.
+    if (!fingerprint_.contentFingerprint.empty()
+        || !fingerprint_.settingsHash.empty()
+        || !fingerprint_.fullSha256.empty()
+        || !fingerprint_.role.empty()
+        || !fingerprint_.sectionMapHash.empty()) {
+        return fingerprint_.cacheKey();
+    }
+    // Legacy thin key for callers that only set trackId|size|mtime.
     std::ostringstream oss;
     oss << trackId_ << '|' << fileSize_ << '|' << std::hex << mtimeHash_;
     return oss.str();
@@ -543,7 +572,24 @@ StreamingAnalysisResult StreamingAnalyzer::finalize()
 {
     StreamingAnalysisResult out;
     out.cancelled = isCancelled();
-    out.truncated = double(framesProcessed_) >= kMaxAnalysisSeconds * sampleRate_;
+    out.truncated = double(framesProcessed_) >= kMaxAnalysisSeconds * sampleRate_ - 0.5;
+    const double duration = sampleRate_ > 0.0 ? double(framesProcessed_) / sampleRate_ : 0.0;
+    out.analyzedDurationSeconds = duration;
+    out.originalDurationSeconds = originalDurationSeconds_ > 0.0
+        ? originalDurationSeconds_
+        : duration;
+    if (out.originalDurationSeconds + 1.0e-6 < duration)
+        out.originalDurationSeconds = duration;
+    if (out.truncated || out.originalDurationSeconds > duration + 0.5)
+        out.truncated = true;
+    out.evidencePenalty = out.truncated ? 0.15 : 0.0;
+
+    fingerprint_.sampleRate = sampleRate_;
+    fingerprint_.channelCount = std::max(1, fingerprint_.channelCount);
+    fingerprint_.sampleCount = static_cast<std::int64_t>(framesProcessed_);
+    fingerprint_.algorithmVersion = kAnalysisAlgorithmVersion;
+    fingerprint_.schemaVersion = kAnalysisSchemaVersion;
+
     out.cacheKey = cacheKey();
     out.progress = out.cancelled ? progress_ : 1.0;
     progress_ = out.progress;
@@ -552,7 +598,6 @@ StreamingAnalysisResult StreamingAnalyzer::finalize()
     out.snareEvents = snareEvents_;
     out.spectralPeakCandidates = peakCandidates_;
 
-    const double duration = sampleRate_ > 0.0 ? double(framesProcessed_) / sampleRate_ : 0.0;
     out.metrics.durationSeconds = duration;
     out.metrics.sampleRate = static_cast<int>(sampleRate_);
     out.metrics.channels = 1;

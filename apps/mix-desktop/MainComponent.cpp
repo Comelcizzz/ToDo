@@ -1,4 +1,5 @@
 #include "mix-desktop/MainComponent.h"
+#include "mastering/analysis/AnalysisFingerprint.h"
 #include "mastering/analysis/StreamingAnalyzer.h"
 #include "mastering/assistant/ActionBudget.h"
 #include "mastering/assistant/MetalcoreAnalysis.h"
@@ -735,16 +736,58 @@ void MainComponent::generateMetalcoreMixPass()
                     formats.createReaderFor(juce::File(track.audioPath)))) {
                 const auto sr = reader->sampleRate;
                 const auto totalFrames = reader->lengthInSamples;
+                const auto originalSeconds = sr > 0.0 ? double(totalFrames) / sr : 0.0;
                 const auto framesCap = static_cast<juce::int64>(
                     sr * analysis::kMaxAnalysisSeconds);
                 const auto framesToRead = std::min(totalFrames, framesCap);
+                const bool willTruncate = totalFrames > framesCap;
+
+                if (willTruncate) {
+                    analysisStatus_ =
+                        "warning: stem exceeds 30 min — analysis will truncate to "
+                        + juce::String(analysis::kMaxAnalysisSeconds / 60.0, 0)
+                        + " min (not full-track)";
+                    pushState();
+                }
 
                 analysis::StreamingAnalyzer streaming;
-                streaming.setTrackIdentity(
-                    track.id,
-                    static_cast<std::uint64_t>(juce::File(track.audioPath).getSize()),
-                    static_cast<std::uint64_t>(
-                        juce::File(track.audioPath).getLastModificationTime().toMilliseconds()));
+                analysis::AnalysisFingerprint fp;
+                fp.assetId = track.id;
+                fp.fileSize = static_cast<std::uint64_t>(juce::File(track.audioPath).getSize());
+                fp.mtimeHash = static_cast<std::uint64_t>(
+                    juce::File(track.audioPath).getLastModificationTime().toMilliseconds());
+                fp.sampleRate = sr;
+                fp.channelCount = static_cast<int>(reader->numChannels);
+                fp.sampleCount = static_cast<std::int64_t>(framesToRead);
+                fp.role = project::roleToString(track.role);
+                fp.settingsHash = analysis::hashSettingsBlob(
+                    "{\"algorithm\":3,\"schema\":5,\"windows\":\"presets\"}");
+                // Fast fingerprint from file head/mid/tail via short reads.
+                {
+                    std::vector<float> probe;
+                    const int ch = std::max(1, static_cast<int>(reader->numChannels));
+                    const int probeFrames = 2048;
+                    juce::AudioBuffer<float> tmp(ch, probeFrames);
+                    auto appendAt = [&](juce::int64 start) {
+                        tmp.clear();
+                        const auto n = static_cast<int>(std::min<juce::int64>(
+                            probeFrames, std::max<juce::int64>(0, totalFrames - start)));
+                        if (n <= 0)
+                            return;
+                        reader->read(&tmp, 0, n, start, true, true);
+                        for (int i = 0; i < n; ++i) {
+                            for (int c = 0; c < ch; ++c)
+                                probe.push_back(tmp.getSample(c, i));
+                        }
+                    };
+                    appendAt(0);
+                    appendAt(std::max<juce::int64>(0, totalFrames / 2 - probeFrames / 2));
+                    appendAt(std::max<juce::int64>(0, totalFrames - probeFrames));
+                    fp.contentFingerprint = analysis::fastContentFingerprint(
+                        probe.data(), probe.size(), 1);
+                }
+                streaming.setFingerprint(std::move(fp));
+                streaming.setOriginalDurationSeconds(originalSeconds);
                 {
                     std::vector<analysis::AnalysisSectionMarker> markers;
                     markers.reserve(project_.sections.size());
@@ -811,6 +854,26 @@ void MainComponent::generateMetalcoreMixPass()
 
                 extras.metrics = result.metrics.durationSeconds > 0.0 ? result.metrics : track.metrics;
                 extras.analysisCacheKey = result.cacheKey;
+                extras.analysisTruncated = result.truncated || willTruncate;
+                extras.analyzedDurationSeconds = result.analyzedDurationSeconds > 0.0
+                    ? result.analyzedDurationSeconds
+                    : (sr > 0.0 ? double(framesToRead) / sr : 0.0);
+                extras.originalDurationSeconds = originalSeconds;
+                extras.evidencePenalty = result.evidencePenalty;
+                if (extras.analysisTruncated) {
+                    project_.analysisTruncated = true;
+                    project_.analyzedDurationSeconds = std::max(
+                        project_.analyzedDurationSeconds,
+                        extras.analyzedDurationSeconds);
+                    project_.originalDurationSeconds = std::max(
+                        project_.originalDurationSeconds,
+                        extras.originalDurationSeconds);
+                    project_.analysisDurationWarning =
+                        "Analysis truncated at 30 minutes — not full-track evidence. "
+                        "Actions carry an evidence penalty.";
+                    analysisStatus_ = "warning: truncated to 30 min (not full-track)";
+                    pushState();
+                }
                 extras.vocalActivityRatio = result.vocal.activityRatio;
                 for (const auto& mask : result.masks) {
                     assistant::TrackAnalysisExtras::ActivityMaskInfo info;
@@ -984,23 +1047,21 @@ void MainComponent::generateMetalcoreMixPass()
         project_.renderIdentityJson = identity.identityJson;
     }
 
-    // AUTO compare policy: auto-apply default actions with evidenceScore >= 0.45
-    // (pending → applied as "auto-accepted"). Lower evidence stays pending for manual review.
-    // CURRENT = committed project state after these applies; RAW = dry.
-    constexpr double kAutoAcceptEvidence = 0.45;
+    // AUTO compare policy: risk-tiered auto-apply (never universal 0.45).
+    // Flow: generate → evidence → risk → resolve → budget → auto-eligibility → apply.
     for (auto& action : project_.mixPassActions) {
         if (action.state == "rejected" || action.state == "cancelled")
             continue;
         if (action.state != "pending" && action.state != "edited")
             continue;
-        if (action.evidenceScore < kAutoAcceptEvidence)
+        if (!action.autoApplyEligibility)
             continue;
         if (action.processorId == "none")
             continue;
         if (assistant::MetalcoreMixPass::applyAction(project_, action)) {
             if (!action.decisionTrace.empty())
                 action.decisionTrace += " | ";
-            action.decisionTrace += "auto-accepted:evidence>=" + std::to_string(kAutoAcceptEvidence);
+            action.decisionTrace += "auto-accepted:" + action.autoApplyReason;
         }
     }
 

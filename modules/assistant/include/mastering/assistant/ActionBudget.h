@@ -15,6 +15,9 @@ struct ActionBudget {
     double maxSectionOffsetDb {3.0};
     double maxTotalUnmaskDb {7.0};
     double minEvidence {0.35};
+    // Prefer corrective over reference-derived when competing for the same budget.
+    bool preferCorrectiveOverReference {true};
+    int maxSectionActionsPerTrack {3};
 };
 
 // Sort by evidenceScore*priority (desc), keep within limits, reject rest with reason.

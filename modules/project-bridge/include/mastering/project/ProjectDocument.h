@@ -153,6 +153,12 @@ struct MixPassAction {
     double confidence {0.0}; // legacy field; prefer evidenceScore
     double evidenceScore {0.0}; // 0..1 deterministic evidence, NOT calibrated probability
     std::string evidenceLabel {"low"}; // low|medium|high
+    // M3C verification: risk-aware AUTO policy fields.
+    std::string riskLevel {"conservativeCorrective"}; // lowTechnical|conservativeCorrective|musicalCreative
+    bool autoApplyEligibility {false};
+    std::string autoApplyReason;
+    double requiredEvidence {0.0};
+    double actualEvidence {0.0};
     std::string explanation;
     std::string sourceMetrics;
     std::string evidence;
@@ -217,6 +223,11 @@ struct ProjectDocument {
     std::string sectionAutomationJson; // serialized SectionAutomationState
     // M3C extensions.
     bool virtualDrumBusEnabled {false};
+    // M3C analysis duration / truncation reporting.
+    bool analysisTruncated {false};
+    double analyzedDurationSeconds {0.0};
+    double originalDurationSeconds {0.0};
+    std::string analysisDurationWarning; // UI-facing warning when truncated
     std::string actionBudgetJson;
     int analysisCacheVersion {0};
     std::string renderIdentityJson;

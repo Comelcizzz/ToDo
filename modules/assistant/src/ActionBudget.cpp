@@ -67,6 +67,19 @@ bool isUnmask(const project::MixPassAction& a) noexcept
         || a.problemType.find("unmask") != std::string::npos;
 }
 
+bool isReferenceDerived(const project::MixPassAction& a) noexcept
+{
+    return a.problemType.find("reference") != std::string::npos
+        || a.problemType.find("Reference") != std::string::npos
+        || a.actionId.find("reference") != std::string::npos
+        || a.origin.find("reference") != std::string::npos;
+}
+
+bool isSectionScoped(const project::MixPassAction& a) noexcept
+{
+    return a.sectionScope != "full" && !a.sectionScope.empty();
+}
+
 std::string trackKey(const project::MixPassAction& a)
 {
     if (!a.targetTrackId.empty())
@@ -74,6 +87,18 @@ std::string trackKey(const project::MixPassAction& a)
     if (!a.targetBusId.empty())
         return a.targetBusId;
     return a.targetPairId.empty() ? std::string {"_"} : a.targetPairId;
+}
+
+// Aggregate key so track/pair/bus cuts on shared targets share cumulative budget.
+std::string cumulativeKey(const project::MixPassAction& a)
+{
+    if (!a.targetPairId.empty())
+        return "pair:" + a.targetPairId;
+    if (!a.targetBusId.empty())
+        return "bus:" + a.targetBusId;
+    if (!a.targetTrackId.empty())
+        return "track:" + a.targetTrackId;
+    return "_";
 }
 
 } // namespace
@@ -84,7 +109,13 @@ std::vector<project::MixPassAction> applyBudget(
     std::vector<std::string>& rejectedReasons)
 {
     rejectedReasons.clear();
-    std::sort(actions.begin(), actions.end(), [](const auto& a, const auto& b) {
+    std::sort(actions.begin(), actions.end(), [&](const auto& a, const auto& b) {
+        if (budget.preferCorrectiveOverReference) {
+            const bool aRef = isReferenceDerived(a);
+            const bool bRef = isReferenceDerived(b);
+            if (aRef != bRef)
+                return !aRef && bRef; // corrective first
+        }
         const double sa = evidencePriority(a);
         const double sb = evidencePriority(b);
         if (std::abs(sa - sb) > 1.0e-12)
@@ -98,11 +129,19 @@ std::vector<project::MixPassAction> applyBudget(
     std::map<std::string, double> eqCutPerTrack;
     std::map<std::string, double> gainPerTrack;
     std::map<std::string, double> sectionPerTrack;
+    std::map<std::string, int> sectionActionsPerTrack;
     double totalUnmask = 0.0;
 
     for (auto& action : actions) {
         const auto key = trackKey(action);
+        const auto cutKey = cumulativeKey(action);
         const double ev = action.evidenceScore > 0.0 ? action.evidenceScore : action.confidence;
+
+        // Rejected conflicts must not consume budget slots.
+        if (action.state == "rejected") {
+            rejectedReasons.push_back(action.actionId + ": already-rejected (not budgeted)");
+            continue;
+        }
 
         if (ev < budget.minEvidence) {
             std::ostringstream oss;
@@ -130,23 +169,29 @@ std::vector<project::MixPassAction> applyBudget(
 
         if (isEqCut(action)) {
             const double cut = eqCutAmount(action);
-            if (eqCutPerTrack[key] + cut > budget.maxCumulativeEqCutDb) {
+            if (eqCutPerTrack[cutKey] + cut > budget.maxCumulativeEqCutDb) {
                 rejectedReasons.push_back(
-                    action.actionId + ": maxCumulativeEqCutDb exceeded for " + key);
+                    action.actionId + ": maxCumulativeEqCutDb exceeded for " + cutKey);
                 action.state = "rejected";
                 continue;
             }
         }
 
         const double gainDelta = gainChangeAmount(action);
-        if (gainDelta > 0.0 && gainPerTrack[key] + gainDelta > budget.maxGainChangeDb) {
+        if (gainDelta > 0.0 && gainPerTrack[cutKey] + gainDelta > budget.maxGainChangeDb) {
             rejectedReasons.push_back(
-                action.actionId + ": maxGainChangeDb exceeded for " + key);
+                action.actionId + ": maxGainChangeDb exceeded for " + cutKey);
             action.state = "rejected";
             continue;
         }
 
-        if (action.sectionScope != "full" && !action.sectionScope.empty()) {
+        if (isSectionScoped(action)) {
+            if (sectionActionsPerTrack[key] >= budget.maxSectionActionsPerTrack) {
+                rejectedReasons.push_back(
+                    action.actionId + ": maxSectionActionsPerTrack exceeded for " + key);
+                action.state = "rejected";
+                continue;
+            }
             const double offset = std::abs(action.proposedValue - action.currentValue);
             if (sectionPerTrack[key] + offset > budget.maxSectionOffsetDb) {
                 rejectedReasons.push_back(
@@ -172,11 +217,13 @@ std::vector<project::MixPassAction> applyBudget(
         if (isDynEq(action))
             ++dynEqPerTrack[key];
         if (isEqCut(action))
-            eqCutPerTrack[key] += eqCutAmount(action);
+            eqCutPerTrack[cutKey] += eqCutAmount(action);
         if (gainDelta > 0.0)
-            gainPerTrack[key] += gainDelta;
-        if (action.sectionScope != "full" && !action.sectionScope.empty())
+            gainPerTrack[cutKey] += gainDelta;
+        if (isSectionScoped(action)) {
             sectionPerTrack[key] += std::abs(action.proposedValue - action.currentValue);
+            ++sectionActionsPerTrack[key];
+        }
 
         kept.push_back(std::move(action));
     }

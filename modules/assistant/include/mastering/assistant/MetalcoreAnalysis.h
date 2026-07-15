@@ -115,6 +115,10 @@ struct TrackAnalysisExtras {
     double vocalActivityRatio {0.0}; // from streaming vocal.activityRatio or masks
     bool vocalMaskActive {false};
     std::string analysisCacheKey;
+    bool analysisTruncated {false};
+    double analyzedDurationSeconds {0.0};
+    double originalDurationSeconds {0.0};
+    double evidencePenalty {0.0};
 };
 
 struct SubOwnershipDecision {

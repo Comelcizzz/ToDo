@@ -2,7 +2,9 @@
 
 ## S. Gate decision
 
-**MILESTONE 3C ACCEPTED** (automated evidence: `[milestone3c]` + `metalcore_engine_validation` locally).
+**MILESTONE 3C REMAINS PARTIAL** — local automated validation + verification hardenings pass; final Linux/Windows CI evidence on verification tip is required for acceptance.
+
+See `docs/M3C_FINAL_VERIFICATION.md` for the A–N verification dossier.
 
 Mandatory limitations (honest):
 - Synthetic validation is **not** proof of professional musical quality or mix taste.
@@ -10,7 +12,7 @@ Mandatory limitations (honest):
 - Installer manual validation remains **NOT MANUALLY VERIFIED**.
 - No ML Lab / production ML / arrangement editing / “universal perfect mix” claim.
 - Blind A/B/C package is a packaging/listening aid on synthetic (or supplied) renders — not a quality certificate.
-- Practical analysis duration cap is **30 minutes** per stem (`kMaxAnalysisSeconds`); longer material is truncated with that documented limit.
+- Practical analysis duration cap is **30 minutes** per stem (`kMaxAnalysisSeconds`); longer material is truncated with explicit warnings + evidence penalty.
 
 M2A remains: `PARTIAL — MANUAL FL STUDIO AND INSTALLER VALIDATION POSTPONED`.
 
@@ -26,7 +28,7 @@ Branch `cursor/mastering-audio-932f`. M3C layers on M3B adaptive engine:
 
 ## B. Streaming / full-track analysis
 
-`StreamingAnalyzer` chunked analysis up to `kMaxAnalysisSeconds` (30 min). Validation session is **90 s @ 48 kHz**, stem-by-stem generate → write WAV → stream-analyze (limits peak RAM). Progress reaches 1 on complete finalize; cancel flag supported mid-pass. Cache key = `trackId|fileSize|mtimeHash`.
+`StreamingAnalyzer` chunked analysis up to `kMaxAnalysisSeconds` (30 min). Validation session is **90 s @ 48 kHz**, stem-by-stem generate → write WAV → stream-analyze (limits peak RAM). Progress reaches 1 on complete finalize; cancel flag supported mid-pass. Cache key is a **layered fingerprint** (asset id, size, mtime, SR/channels/duration, head/mid/tail content hash, algorithm/schema/settings/role/section map) — not size+mtime alone.
 
 Evidence: `streaming_analysis.json`, `[milestone3c]` long-buffer + cancel tests.
 
@@ -48,20 +50,20 @@ Real dry/wet parallel path, **0 sample latency** (shared time base). Wet>0 chang
 
 ## G. Stereo width
 
-M/S encode/decode, low-band mono (side LPF residual discarded below cutoff), correlation guard, mono passthrough. Mid/side energy roughly preserved above cutoff; low side reduced below cutoff.
+Complementary one-pole Side split (`sideLow + sideHigh == side`). Unity mode (`lowBandMonoEnabled=false`, width=1, 0 dB gains) is M/S identity. Product low-band mono discards `sideLow` only. Correlation guard + mono passthrough retained.
 
 ## H. Loudness match (LUFS policy)
 
-`LoudnessMatch::matchBuffers`:
+`LoudnessMatch::matchBuffers` uses production M1A `LoudnessMeter`:
 - ≥3 s + valid integrated → **`integrated-lufs`**
-- 1–3 s → short-term LUFS
+- 1–3 s → short-term LUFS (when windows valid)
 - <1 s → **`bounded-rms-short-preview`** (never labeled as LUFS)
 
 90 s validation documents `integrated-lufs` in `loudness_match.json` + `validation.md`. Unit test: 4 s match within 0.5 dB; short preview method string correct.
 
 ## I. Action budget
 
-`applyBudget` sorts by evidence×priority, enforces per-track / DynEQ / cumulative cut / unmask caps. 20 synthetic candidates reduce to budget; high evidence kept preferentially.
+`applyBudget` runs **after** `ActionResolver`. Rejected conflicts are not budgeted. Corrective Actions preferred over reference under pressure. Section Actions have a separate bounded budget. Track/pair/bus cumulative cuts share aggregate keys.
 
 ## J. Evidence model
 
@@ -69,7 +71,11 @@ M/S encode/decode, low-band mono (side LPF residual discarded below cutoff), cor
 
 ## K. Render identity
 
-`RenderIdentityBuilder` FNV-1a hashes over render/action/processor/section graphs + asset hashes + loudness match gain. Hash changes when action graph string changes. Artifact: `render_identity.json`.
+`graphId` = FNV-1a-64 (deterministic internal ID only — not cryptographic). `artifactSha256` / `sourceAssetSha256` / `manifestSha256` = SHA-256 integrity. Artifact: `render_identity.json` documents algorithms.
+
+## K2. AUTO risk policy
+
+Risk tiers replace universal 0.45: lowTechnical / conservativeCorrective / musicalCreative. Musical/reference default to Preview. Action carries `riskLevel`, `autoApplyEligibility`, `autoApplyReason`, `requiredEvidence`, `actualEvidence`.
 
 ## L. Safe ranges
 
@@ -103,10 +109,10 @@ Exit 0 when smoke gates pass (actions, ≥90 s streaming, integrated-lufs, blind
 
 ## O. Suite / StemEngine integration
 
-- `MainComponent::generateMetalcoreMixPass` streams each stem via `StreamingAnalyzer` (4096 chunks) up to `kMaxAnalysisSeconds` (30 min) with `analyzing XX%` progress — **no silent 60 s cap**.
-- StemEngine: ParallelCompressor on drum-bus / `parallelEnabled`; StereoWidth when enabled; multi-param section offsets; `compareMatchGainDb_` LUFS makeup for fair A/B.
-- AUTO = project after auto-accept of evidence ≥ 0.45; CURRENT = committed; RAW = dry.
-- Schema **v5** persists parallel/width + budget/identity fields.
+- `MainComponent::generateMetalcoreMixPass` streams each stem via `StreamingAnalyzer` (4096 chunks) up to `kMaxAnalysisSeconds` (30 min) with `analyzing XX%` progress — **no silent 60 s cap**. Truncation warns before/after and applies evidence penalty.
+- StemEngine: ParallelCompressor on drum-bus / `parallelEnabled`; StereoWidth when enabled; multi-param section offsets; `compareMatchGainDb_` LUFS makeup for fair A/B (does not mutate committed DSP).
+- AUTO = risk-eligible auto-applied Actions only (not universal 0.45); CURRENT = committed; RAW = dry.
+- Schema **v5** persists parallel/width + budget/identity/truncation fields.
 
 ## P. Performance
 
@@ -114,7 +120,7 @@ Validation reports wall time and realtime-factor estimate for the 90 s synthetic
 
 ## Q. Realtime / offline consistency
 
-Shared DynEQ, ParallelCompressor, StereoWidth, SectionAutomation, LoudnessMatch between core tests and validation offline path. Mix Node / FL realtime still postponed for manual proof.
+`RealtimeOfflineCompare` Suite-level battery (DynEQ, VocalRider, section offsets, parallel, StereoWidth, master safety, full AUTO graph) compares block-512 vs block-2048 with documented latency compensation. Shared core unit tests remain.
 
 ## R. Limitations (mandatory)
 
@@ -139,15 +145,18 @@ This report intentionally makes **no** claim that AUTO sounds “better” than 
 
 | Criterion | Status |
 |---|---|
-| `[milestone3c]` Catch2 suite | PASS (local build/run) |
-| Streaming >60 s + cancel + cache key | PASS |
+| `[milestone3c]` Catch2 suite | PASS (local) |
+| Streaming >60 s + cancel + layered cache | PASS |
 | Events / bass occupancy / multi-param automation | PASS |
-| Parallel + width DSP unit checks | PASS |
+| Parallel + complementary width DSP | PASS |
 | LoudnessMatch integrated + short RMS policy | PASS |
-| ActionBudget / Evidence / RenderIdentity / SafeRange | PASS |
-| `metalcore_engine_validation` 90 s + StreamingAnalyzer evidence | PASS |
+| ActionBudget / Evidence / RenderIdentity SHA-256 / SafeRange | PASS |
+| Risk-aware AUTO (not universal 0.45) | PASS |
+| Suite RT/offline consistency battery | PASS |
+| 30-min truncation reporting | PASS |
+| `metalcore_engine_validation` 90 s | PASS |
 | Blind package + answer key + render_identity | PASS |
-| CI wired for `[milestone3c]` + artifact upload | PASS (workflow updated) |
+| Linux + Windows CI green on verification tip | **PENDING** |
 | Musical quality / FL / installer / ML | N/A or postponed |
 
-**Gate:** **MILESTONE 3C ACCEPTED** when the above automated rows pass locally; otherwise PARTIAL.
+**Gate:** **MILESTONE 3C REMAINS PARTIAL** until tip CI green — see `docs/M3C_FINAL_VERIFICATION.md`.
