@@ -31,8 +31,7 @@ PrivilegesRequired=admin
 UninstallDisplayName={#MyAppName}
 VersionInfoVersion={#MyAppVersion}
 SetupLogging=yes
-; Unsigned developer build
-SignTool=
+; Developer build is intentionally UNSIGNED (no SignTool).
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

@@ -45,9 +45,9 @@ void MixNodeEditor::handleCommand(const juce::var& command)
     } else if (type == "set-track-name") {
         processor_.setTrackName(object->getProperty("name").toString());
     } else if (type == "mix-node-cancel-preview") {
-        processor_.controller().cancelPreview();
+        (void) processor_.controller().cancelPreview();
     } else if (type == "mix-node-undo") {
-        processor_.controller().undo();
+        (void) processor_.controller().undo();
     } else if (type == "mix-node-set-param") {
         const auto param = object->getProperty("parameterId").toString();
         const float value = static_cast<float>(object->getProperty("value"));

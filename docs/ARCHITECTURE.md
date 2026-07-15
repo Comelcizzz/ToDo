@@ -57,7 +57,7 @@ Evidence: `[milestone0][bit-transparency]` tests in `tests/Milestone0RegressionT
 → FL hierarchy / Mix Pass / full Mix Node / polished UI / ML Lab GUI
 ```
 
-Gates: M1A accepted; M1B accepted; **M1C accepted** (`docs/M1C_EVIDENCE_REPORT.md`). Do not start Mix Node / Metalcore Mix Pass / installer / ML Lab without explicit confirmation.
+Gates: M1A accepted; M1B accepted; M1C accepted; **M2A REMAINS PARTIAL** (`docs/M2A_EVIDENCE_REPORT.md` — FL manual + installer verification outstanding). Do not start Metalcore Mix Pass / ML Lab / section-aware logic without explicit confirmation.
 
 ## Host latency model (Milestone 1B+)
 

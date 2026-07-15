@@ -55,18 +55,35 @@ foreach ($zip in @($portableZip, $legacyZip)) {
 # Optional Inno Setup installer (when iscc is available).
 $iss = Join-Path $PSScriptRoot "windows-installer.iss"
 $iscc = Get-Command iscc -ErrorAction SilentlyContinue
+if (-not $iscc) {
+    $isccPath = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+    if (Test-Path $isccPath) {
+        $iscc = @{ Source = $isccPath }
+    }
+}
+$installerDir = Join-Path $OutDir "installer"
+New-Item -ItemType Directory -Force -Path $installerDir | Out-Null
 if ($iscc -and (Test-Path $iss)) {
-    & iscc $iss /DSourceDir="$stage" /DOutDir="$OutDir"
-    Write-Host "Inno Setup installer build attempted"
+    try {
+        $isccExe = if ($iscc.Source) { $iscc.Source } else { "iscc" }
+        & $isccExe $iss "/DSourceDir=$stage" "/DOutDir=$OutDir"
+        if ($LASTEXITCODE -ne 0) { throw "ISCC exited $LASTEXITCODE" }
+        Write-Host "Inno Setup installer built"
+    } catch {
+        Write-Warning "Inno Setup compile failed: $_"
+        @(
+            "Mastering Audio Suite early installer",
+            "Status: Inno Setup compile FAILED on this runner.",
+            "Portable ZIP is still produced.",
+            "Manual Windows install verification: REQUIRED."
+        ) | Set-Content (Join-Path $installerDir "INSTALLER_STATUS.txt")
+    }
 } else {
-    Write-Host "Inno Setup (iscc) not available — portable ZIP only. Installer marked NOT MANUALLY VERIFIED."
-    # Emit a stub marker so CI can still upload an installer artifact folder.
-    $installerDir = Join-Path $OutDir "installer"
-    New-Item -ItemType Directory -Force -Path $installerDir | Out-Null
+    Write-Host "Inno Setup (iscc) not available — portable ZIP only."
     @(
         "Mastering Audio Suite early installer",
         "Status: Inno Setup script present (scripts/windows-installer.iss).",
-        "This CI runner did not compile Setup.exe (iscc missing) OR compile was skipped.",
+        "This runner did not compile Setup.exe (iscc missing).",
         "Portable ZIP: MasteringAudioSuite-Portable-x64.zip",
         "Manual Windows install verification: REQUIRED before calling installer verified."
     ) | Set-Content (Join-Path $installerDir "INSTALLER_STATUS.txt")
