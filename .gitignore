@@ -14,6 +14,13 @@ dist/
 *.aif
 *.aiff
 *.masuite
+!benchmarks/personal/manifest.json
+!benchmarks/personal/README.md
+benchmarks/personal/stems/
+benchmarks/personal/references/
+benchmarks/personal/targets/
+benchmarks/personal/renders/
+benchmarks/personal/reports/
 *.analysis.json
 __pycache__/
 *.egg-info/

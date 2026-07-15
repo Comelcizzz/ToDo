@@ -32,6 +32,7 @@ add_library(mastering_audio_core STATIC
     modules/dsp/src/DynamicEq.cpp
     modules/dsp/src/MixNodeChain.cpp
     modules/assistant/src/MixAdvisor.cpp
+    modules/assistant/src/MetalcoreMixPass.cpp
     modules/project-bridge/src/ProjectDocument.cpp
     modules/research-export/src/ResearchExample.cpp
     modules/ipc/src/BridgeProtocol.cpp
@@ -88,6 +89,7 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tests/M1BVerificationTests.cpp
         tests/DynamicEqTests.cpp
         tests/MixNodeTests.cpp
+        tests/MetalcoreMixPassTests.cpp
     )
     target_link_libraries(mastering_audio_tests
         PRIVATE
@@ -109,6 +111,11 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tools/mix-node-validation/main.cpp
     )
     target_link_libraries(mix_node_validation PRIVATE mastering_audio_core)
+
+    add_executable(mixpass_validation
+        tools/mixpass-validation/main.cpp
+    )
+    target_link_libraries(mixpass_validation PRIVATE mastering_audio_core)
 
     include(CTest)
     include(Catch)

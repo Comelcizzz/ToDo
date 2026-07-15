@@ -131,8 +131,44 @@ void MainComponent::handleCommand(const juce::var& command)
             source == "reference"
                 ? StemEngine::MonitorSource::reference
                 : StemEngine::MonitorSource::mix);
+    } else if (type == "set-compare-mode") {
+        const auto mode = object->getProperty("mode").toString();
+        if (mode == "raw")
+            engine_.setCompareMode(StemEngine::CompareMode::raw);
+        else if (mode == "auto")
+            engine_.setCompareMode(StemEngine::CompareMode::autoProcessed);
+        else if (mode == "reference" || mode == "ref")
+            engine_.setCompareMode(StemEngine::CompareMode::reference);
+        else
+            engine_.setCompareMode(StemEngine::CompareMode::current);
     } else if (type == "generate-mix-plan") {
         generateMixPlan();
+    } else if (type == "generate-metalcore-mix-pass") {
+        generateMetalcoreMixPass();
+    } else if (type == "ensure-hierarchy") {
+        assistant::MetalcoreMixPass::ensureHierarchy(project_);
+    } else if (type == "set-bpm") {
+        project_.bpm = juce::jlimit(40.0, 300.0, static_cast<double>(object->getProperty("bpm")));
+    } else if (type == "add-section") {
+        addSection(command);
+    } else if (type == "remove-section") {
+        removeSection(object->getProperty("sectionId").toString());
+    } else if (type == "mixpass-preview") {
+        previewMixPassAction(object->getProperty("actionId").toString());
+    } else if (type == "mixpass-apply") {
+        applyMixPassActionCmd(object->getProperty("actionId").toString());
+    } else if (type == "mixpass-reject") {
+        rejectMixPassAction(object->getProperty("actionId").toString());
+    } else if (type == "mixpass-edit") {
+        editMixPassAction(
+            object->getProperty("actionId").toString(),
+            static_cast<double>(object->getProperty("proposedValue")));
+    } else if (type == "mixpass-cancel-preview") {
+        cancelMixPassPreview(object->getProperty("actionId").toString());
+    } else if (type == "mixpass-undo") {
+        undoMixPass();
+    } else if (type == "mixpass-redo") {
+        redoMixPass();
     } else if (type == "select-variant") {
         selectVariant(object->getProperty("variant").toString());
     } else if (type == "apply-mix-plan") {
@@ -162,6 +198,7 @@ void MainComponent::handleCommand(const juce::var& command)
                 object->getProperty("role").toString().toStdString())) {
                 track->role = *role;
                 engine_.updateTrack(*track);
+                assistant::MetalcoreMixPass::ensureHierarchy(project_);
             }
         }
     } else if (type == "set-track-gain") {
@@ -280,6 +317,9 @@ void MainComponent::createProject()
     planVariants_.clear();
     selectedVariant_ = assistant::MixVariant::balanced;
     referenceMetrics_.reset();
+    mixPassUndoStack_.clear();
+    mixPassRedoStack_.clear();
+    analysisStatus_ = "idle";
     engine_.loadProject(project_);
     bridge_.setSuiteSession(juce::String(project_.id), juce::String(project::makeProjectId()));
     pushState();
@@ -540,8 +580,12 @@ void MainComponent::importStems(const juce::Array<juce::File>& files)
     project_.sampleRate = project_.tracks.front().metrics.sampleRate;
     if (project_.name == "Untitled Mix")
         project_.name = files.getFirst().getParentDirectory().getFileName().toStdString();
+    assistant::MetalcoreMixPass::ensureHierarchy(project_);
     currentPlan_ = {};
     planVariants_.clear();
+    project_.mixPassActions.clear();
+    mixPassUndoStack_.clear();
+    mixPassRedoStack_.clear();
     pushState();
 }
 
@@ -661,6 +705,116 @@ void MainComponent::applyMixPlan()
     pushState();
 }
 
+void MainComponent::generateMetalcoreMixPass()
+{
+    analysisStatus_ = "analyzing";
+    pushState();
+    assistant::MetalcoreMixPass::ensureHierarchy(project_);
+    assistant::MetalcoreMixPass::Options options;
+    options.bpm = project_.bpm;
+    project_.mixPassActions = mixPass_.generateActions(project_, referenceMetrics_, options);
+    mixPassUndoStack_.clear();
+    mixPassRedoStack_.clear();
+    analysisStatus_ = "ready";
+    engine_.setCompareMode(StemEngine::CompareMode::autoProcessed);
+}
+
+void MainComponent::previewMixPassAction(const juce::String& actionId)
+{
+    if (auto* action = findMixPassAction(actionId)) {
+        if (assistant::MetalcoreMixPass::previewAction(*action)) {
+            // Preview applies proposed DSP temporarily for audition.
+            engine_.applyMixPassAction(*action);
+        }
+    }
+}
+
+void MainComponent::applyMixPassActionCmd(const juce::String& actionId)
+{
+    if (auto* action = findMixPassAction(actionId)) {
+        if (assistant::MetalcoreMixPass::applyAction(project_, *action)) {
+            engine_.applyMixPassAction(*action);
+            // Re-sync engine tracks after pair-linked updates.
+            for (const auto& track : project_.tracks)
+                engine_.updateTrack(track);
+            mixPassUndoStack_.push_back(action->actionId);
+            mixPassRedoStack_.clear();
+            engine_.setCompareMode(StemEngine::CompareMode::current);
+        }
+    }
+}
+
+void MainComponent::rejectMixPassAction(const juce::String& actionId)
+{
+    if (auto* action = findMixPassAction(actionId))
+        assistant::MetalcoreMixPass::rejectAction(*action);
+}
+
+void MainComponent::editMixPassAction(const juce::String& actionId, double proposedValue)
+{
+    if (auto* action = findMixPassAction(actionId))
+        assistant::MetalcoreMixPass::editAction(*action, proposedValue);
+}
+
+void MainComponent::cancelMixPassPreview(const juce::String& actionId)
+{
+    if (auto* action = findMixPassAction(actionId)) {
+        if (assistant::MetalcoreMixPass::cancelPreview(*action)) {
+            // Restore committed project state into engine.
+            for (const auto& track : project_.tracks)
+                engine_.updateTrack(track);
+        }
+    }
+}
+
+void MainComponent::undoMixPass()
+{
+    if (mixPassUndoStack_.empty())
+        return;
+    const auto actionId = mixPassUndoStack_.back();
+    mixPassUndoStack_.pop_back();
+    if (auto* action = findMixPassAction(juce::String(actionId))) {
+        if (assistant::MetalcoreMixPass::undoAction(project_, *action)) {
+            for (const auto& track : project_.tracks)
+                engine_.updateTrack(track);
+            mixPassRedoStack_.push_back(actionId);
+        }
+    }
+}
+
+void MainComponent::redoMixPass()
+{
+    if (mixPassRedoStack_.empty())
+        return;
+    const auto actionId = mixPassRedoStack_.back();
+    mixPassRedoStack_.pop_back();
+    applyMixPassActionCmd(juce::String(actionId));
+}
+
+void MainComponent::addSection(const juce::var& command)
+{
+    const auto* object = command.getDynamicObject();
+    if (object == nullptr)
+        return;
+    project::SectionMarker section;
+    section.id = project::makeProjectId();
+    section.name = object->getProperty("name").toString().toStdString();
+    section.startSeconds = static_cast<double>(object->getProperty("startSeconds"));
+    section.endSeconds = static_cast<double>(object->getProperty("endSeconds"));
+    if (const auto kind = project::sectionKindFromString(
+            object->getProperty("kind").toString().toStdString()))
+        section.kind = *kind;
+    if (section.name.empty())
+        section.name = project::sectionKindToString(section.kind);
+    project_.sections.push_back(std::move(section));
+}
+
+void MainComponent::removeSection(const juce::String& sectionId)
+{
+    const auto id = sectionId.toStdString();
+    std::erase_if(project_.sections, [&](const auto& section) { return section.id == id; });
+}
+
 void MainComponent::pushState()
 {
     auto state = juce::JSON::parse(juce::String(project::serialize(project_)));
@@ -677,10 +831,24 @@ void MainComponent::pushState()
     object->setProperty(
         "monitorSource",
         engine_.monitorSource() == StemEngine::MonitorSource::reference ? "reference" : "mix");
+    {
+        juce::String compare = "current";
+        switch (engine_.compareMode()) {
+        case StemEngine::CompareMode::raw: compare = "raw"; break;
+        case StemEngine::CompareMode::autoProcessed: compare = "auto"; break;
+        case StemEngine::CompareMode::reference: compare = "reference"; break;
+        case StemEngine::CompareMode::current: compare = "current"; break;
+        }
+        object->setProperty("compareMode", compare);
+    }
     object->setProperty("hasReference", engine_.hasReference());
     object->setProperty("referenceGainDb", engine_.referenceGainDb());
     object->setProperty("selectedVariant", juce::String(assistant::mixVariantToString(selectedVariant_)));
     object->setProperty("exportBitDepth", exportBitDepth_);
+    object->setProperty("bpm", project_.bpm);
+    object->setProperty("analysisStatus", analysisStatus_);
+    object->setProperty("canUndoMixPass", !mixPassUndoStack_.empty());
+    object->setProperty("canRedoMixPass", !mixPassRedoStack_.empty());
     const auto planState = juce::JSON::parse(juce::String(assistant::toJson(currentPlan_)));
     if (const auto* planObject = planState.getDynamicObject()) {
         object->setProperty("suggestions", planObject->getProperty("suggestions"));
@@ -730,6 +898,15 @@ project::TrackRecord* MainComponent::findTrack(const juce::String& id)
         return track.id == identifier;
     });
     return iterator != project_.tracks.end() ? &*iterator : nullptr;
+}
+
+project::MixPassAction* MainComponent::findMixPassAction(const juce::String& id)
+{
+    const auto identifier = id.toStdString();
+    const auto iterator = std::ranges::find_if(
+        project_.mixPassActions,
+        [&identifier](const auto& action) { return action.actionId == identifier; });
+    return iterator != project_.mixPassActions.end() ? &*iterator : nullptr;
 }
 
 } // namespace mastering::desktop

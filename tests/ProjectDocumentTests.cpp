@@ -39,7 +39,8 @@ TEST_CASE("Track role inference recognizes FL Studio stem names", "[project]")
     CHECK(mastering::project::inferRoleFromFilename("05 Kick In.wav") == TrackRole::kick);
     CHECK(mastering::project::inferRoleFromFilename("Bass GRIT.wav") == TrackRole::bass);
     CHECK(mastering::project::inferRoleFromFilename("Lead Vox Print.wav") == TrackRole::cleanVocal);
-    CHECK(mastering::project::inferRoleFromFilename("Rhythm GTR L.wav") == TrackRole::rhythmGuitar);
+    CHECK(mastering::project::inferRoleFromFilename("Rhythm GTR L.wav") == TrackRole::rhythmGuitarLeft);
+    CHECK(mastering::project::inferRoleFromFilename("Rhythm GTR R.wav") == TrackRole::rhythmGuitarRight);
 }
 
 TEST_CASE("Mix advisor bounds automatic gain and reports sub conflict", "[assistant]")

@@ -9,9 +9,10 @@ describe("Mastering Audio UI", () => {
 
   it("shows the standalone stem workflow", () => {
     const { unmount } = render(<App />);
-    expect(screen.getByText("Stem Mix Suite")).toBeInTheDocument();
-    expect(screen.getByText("Drop exported FL Studio stems here")).toBeInTheDocument();
+    expect(screen.getAllByText("Metalcore Mix Pass").length).toBeGreaterThan(0);
+    expect(screen.getByText("Drop metalcore stems here")).toBeInTheDocument();
     expect(screen.getByText("Export ML example")).toBeDisabled();
+    expect(screen.getByText("Run Metalcore Mix Pass")).toBeInTheDocument();
     unmount();
   });
 

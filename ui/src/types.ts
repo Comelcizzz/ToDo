@@ -5,15 +5,24 @@ export type TrackRole =
   | "snare"
   | "toms"
   | "cymbals"
+  | "drum-bus"
   | "bass"
+  | "bass-bus"
   | "rhythm-guitar"
+  | "rhythm-guitar-left"
+  | "rhythm-guitar-right"
   | "lead-guitar"
+  | "clean-guitar"
+  | "guitar-bus"
   | "clean-vocal"
   | "scream-vocal"
   | "backing-vocal"
+  | "vocal-bus"
   | "synth"
   | "orchestra"
-  | "effects";
+  | "effects"
+  | "music-bus"
+  | "master";
 
 export interface AudioMetrics {
   samplePeakDbfs: number;
@@ -54,6 +63,57 @@ export interface Track {
   soloed: boolean;
   polarityInverted?: boolean;
   metrics: AudioMetrics;
+  pairId?: string;
+  parentBusId?: string;
+  channelPosition?: string;
+  dynamicEqEnabled?: boolean;
+}
+
+export interface PairRecord {
+  id: string;
+  name: string;
+  leftTrackId: string;
+  rightTrackId: string;
+  parentBusId?: string;
+  linkedProcessing?: boolean;
+}
+
+export interface BusRecord {
+  id: string;
+  name: string;
+  role: string;
+  childTrackIds?: string[];
+  childPairIds?: string[];
+  gainDb?: number;
+}
+
+export interface SectionMarker {
+  id: string;
+  kind: string;
+  name: string;
+  startSeconds: number;
+  endSeconds: number;
+}
+
+export interface MixPassAction {
+  actionId: string;
+  actionVersion?: number;
+  problemType: string;
+  targetTrackId: string;
+  targetPairId?: string;
+  targetBusId?: string;
+  processorId: string;
+  parameterId: string;
+  currentValue: number;
+  proposedValue: number;
+  allowedMin: number;
+  allowedMax: number;
+  confidence: number;
+  explanation: string;
+  sourceMetrics?: string;
+  sectionScope?: string;
+  state: string;
+  origin?: string;
 }
 
 export interface Suggestion {
@@ -97,15 +157,24 @@ export interface SuiteState {
   positionSeconds: number;
   durationSeconds: number;
   tracks: Track[];
+  pairs?: PairRecord[];
+  buses?: BusRecord[];
+  sections?: SectionMarker[];
+  mixPassActions?: MixPassAction[];
   suggestions: Suggestion[];
   analyzerMetrics?: AudioMetrics;
   analyzerRole?: TrackRole;
   monitorSource?: "mix" | "reference";
+  compareMode?: "raw" | "auto" | "current" | "reference";
   hasReference?: boolean;
   referenceGainDb?: number;
   selectedVariant?: string;
   variants?: string[];
   exportBitDepth?: number;
+  bpm?: number;
+  analysisStatus?: string;
+  canUndoMixPass?: boolean;
+  canRedoMixPass?: boolean;
   mixNodes?: MixNodeInfo[];
   selectedMixNodeId?: string;
   suiteSessionId?: string;
@@ -158,3 +227,30 @@ export const emptyMetrics: AudioMetrics = {
   stereoCorrelation: 1,
   transientDensityHz: 0,
 };
+
+export const trackRoleOptions: TrackRole[] = [
+  "custom",
+  "kick",
+  "snare",
+  "toms",
+  "cymbals",
+  "drums",
+  "drum-bus",
+  "bass",
+  "bass-bus",
+  "rhythm-guitar-left",
+  "rhythm-guitar-right",
+  "rhythm-guitar",
+  "lead-guitar",
+  "clean-guitar",
+  "guitar-bus",
+  "clean-vocal",
+  "scream-vocal",
+  "backing-vocal",
+  "vocal-bus",
+  "synth",
+  "orchestra",
+  "effects",
+  "music-bus",
+  "master",
+];

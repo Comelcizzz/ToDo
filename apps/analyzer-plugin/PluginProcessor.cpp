@@ -17,15 +17,24 @@ const std::array roleValues {
     project::TrackRole::snare,
     project::TrackRole::toms,
     project::TrackRole::cymbals,
+    project::TrackRole::drumBus,
     project::TrackRole::bass,
+    project::TrackRole::bassBus,
     project::TrackRole::rhythmGuitar,
+    project::TrackRole::rhythmGuitarLeft,
+    project::TrackRole::rhythmGuitarRight,
     project::TrackRole::leadGuitar,
+    project::TrackRole::cleanGuitar,
+    project::TrackRole::guitarBus,
     project::TrackRole::cleanVocal,
     project::TrackRole::screamVocal,
     project::TrackRole::backingVocal,
+    project::TrackRole::vocalBus,
     project::TrackRole::synth,
     project::TrackRole::orchestra,
-    project::TrackRole::effects
+    project::TrackRole::effects,
+    project::TrackRole::musicBus,
+    project::TrackRole::master
 };
 
 juce::StringArray roleNames()

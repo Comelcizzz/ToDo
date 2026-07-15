@@ -3,10 +3,12 @@
 #include "mix-desktop/BridgeServer.h"
 #include "mix-desktop/StemEngine.h"
 #include "shared/WebViewComponent.h"
+#include "mastering/assistant/MetalcoreMixPass.h"
 #include "mastering/ipc/MixNodeProtocol.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace mastering::desktop {
@@ -44,13 +46,25 @@ private:
     void generateMixPlan();
     void applyMixPlan();
     void selectVariant(const juce::String& variant);
+    void generateMetalcoreMixPass();
+    void previewMixPassAction(const juce::String& actionId);
+    void applyMixPassActionCmd(const juce::String& actionId);
+    void rejectMixPassAction(const juce::String& actionId);
+    void editMixPassAction(const juce::String& actionId, double proposedValue);
+    void cancelMixPassPreview(const juce::String& actionId);
+    void undoMixPass();
+    void redoMixPass();
+    void addSection(const juce::var& command);
+    void removeSection(const juce::String& sectionId);
     void pushState();
     [[nodiscard]] project::TrackRecord* findTrack(const juce::String& id);
+    [[nodiscard]] project::MixPassAction* findMixPassAction(const juce::String& id);
 
     app::WebViewComponent webView_ {app::WebViewComponent::Product::desktopSuite};
     StemEngine engine_;
     BridgeServer bridge_;
     assistant::MixAdvisor advisor_;
+    assistant::MetalcoreMixPass mixPass_;
     project::ProjectDocument project_;
     std::vector<assistant::MixPlan> planVariants_;
     assistant::MixPlan currentPlan_;
@@ -60,6 +74,9 @@ private:
     juce::File projectFile_;
     std::unique_ptr<juce::FileChooser> fileChooser_;
     juce::String selectedMixNodeId_;
+    std::vector<std::string> mixPassUndoStack_;
+    std::vector<std::string> mixPassRedoStack_;
+    juce::String analysisStatus_ {"idle"};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

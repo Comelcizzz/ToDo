@@ -24,6 +24,25 @@ export type NativeCommand =
   | { type: "export-research-example" }
   | { type: "analyze" }
   | { type: "generate-mix-plan" }
+  | { type: "generate-metalcore-mix-pass" }
+  | { type: "ensure-hierarchy" }
+  | { type: "set-bpm"; bpm: number }
+  | {
+      type: "add-section";
+      kind: string;
+      name?: string;
+      startSeconds: number;
+      endSeconds: number;
+    }
+  | { type: "remove-section"; sectionId: string }
+  | { type: "mixpass-preview"; actionId: string }
+  | { type: "mixpass-apply"; actionId: string }
+  | { type: "mixpass-reject"; actionId: string }
+  | { type: "mixpass-edit"; actionId: string; proposedValue: number }
+  | { type: "mixpass-cancel-preview"; actionId: string }
+  | { type: "mixpass-undo" }
+  | { type: "mixpass-redo" }
+  | { type: "set-compare-mode"; mode: "raw" | "auto" | "current" | "reference" }
   | { type: "select-variant"; variant: string }
   | { type: "apply-mix-plan" }
   | { type: "reject-mix-plan" }

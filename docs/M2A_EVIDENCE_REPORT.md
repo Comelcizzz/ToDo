@@ -114,6 +114,6 @@ See `artifacts/mix_node_validation/benchmark_smoke.md`. RTF = audio_s / wall_s. 
 
 ## O. Gate decision
 
-**`MILESTONE 2A REMAINS PARTIAL`**
+**`MILESTONE 2A REMAINS PARTIAL — AUTOMATED IMPLEMENTATION PASSED, MANUAL FL STUDIO AND INSTALLER VALIDATION POSTPONED`**
 
-Reason: automated Mix Node DSP/protocol/persistence/CI path is implemented, but FL Studio manual validation and signed/manual installer verification are outstanding. Do not start Metalcore Mix Pass / ML Lab without separate confirmation after a green Windows CI and explicit acceptance of PARTIAL or a follow-up FL verification pass.
+Automated Mix Node / Suite / packaging / CI path is accepted for further development. Manual FL Studio and installer validation are **postponed** and must not block Milestone 3A. FL-specific features remain `NOT MANUALLY VERIFIED IN FL STUDIO`. Installer remains `NOT MANUALLY VERIFIED`. Checklist preserved in `docs/FL_MIX_NODE_VALIDATION.md`.

@@ -1,4 +1,5 @@
 #include "mix-desktop/StemEngine.h"
+#include "mastering/dsp/DynamicEq.h"
 #include "mastering/dsp/ExportQc.h"
 #include "mastering/dsp/MasterSafetyChain.h"
 
@@ -14,6 +15,7 @@ struct StemEngine::PlaybackTrack {
     std::unique_ptr<juce::AudioFormatReaderSource> source;
     juce::AudioTransportSource transport;
     dsp::ProcessorChain processor;
+    dsp::DynamicEqProcessor dynamicEq;
     juce::AudioBuffer<float> scratch;
 };
 
@@ -50,6 +52,9 @@ void StemEngine::prepareToPlay(int samplesPerBlockExpected, double sampleRate)
     for (auto& track : tracks_) {
         track->transport.prepareToPlay(samplesPerBlockExpected, sampleRate);
         track->processor.prepare(sampleRate, 2);
+        track->dynamicEq.prepare(sampleRate, samplesPerBlockExpected, 2);
+        if (track->record.dynamicEqEnabled)
+            track->dynamicEq.setState(track->record.dynamicEq);
         track->scratch.setSize(2, samplesPerBlockExpected, false, false, true);
     }
     prepared_ = true;
@@ -118,7 +123,9 @@ void StemEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToF
             track->scratch.getWritePointer(0),
             track->scratch.getWritePointer(1)
         };
-        track->processor.process(trackChannels, 2, bufferToFill.numSamples);
+        // RAW compare: dry stems only (no processor / DynEQ).
+        if (compareMode_ != CompareMode::raw)
+            track->processor.process(trackChannels, 2, bufferToFill.numSamples);
 
         if (track->record.role == project::TrackRole::kick)
             kickTrack = track.get();
@@ -126,7 +133,9 @@ void StemEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToF
             bassTrack = track.get();
     }
 
-    if (kickTrack != nullptr && bassTrack != nullptr) {
+    // Frequency-dependent kick→bass duck when Mix Pass DynEQ is enabled on bass.
+    // Falls back to legacy broadband DynamicSeparator only when DynEQ is off.
+    if (compareMode_ != CompareMode::raw && kickTrack != nullptr && bassTrack != nullptr) {
         const float* sidechain[] {
             kickTrack->scratch.getReadPointer(0),
             kickTrack->scratch.getReadPointer(1)
@@ -135,7 +144,44 @@ void StemEngine::getNextAudioBlock(const juce::AudioSourceChannelInfo& bufferToF
             bassTrack->scratch.getWritePointer(0),
             bassTrack->scratch.getWritePointer(1)
         };
-        kickBassSeparator_.process(sidechain, target, 2, bufferToFill.numSamples);
+        if (bassTrack->record.dynamicEqEnabled) {
+            bassTrack->dynamicEq.process(target, sidechain, 2, bufferToFill.numSamples);
+        } else {
+            kickBassSeparator_.process(sidechain, target, 2, bufferToFill.numSamples);
+        }
+    }
+
+    // Other DynEQ tracks (guitar unmask etc.) — external SC from configured source id.
+    if (compareMode_ != CompareMode::raw) {
+        for (auto& track : tracks_) {
+            if (!track->record.dynamicEqEnabled || track->record.role == project::TrackRole::bass)
+                continue;
+            if (track->record.muted || (anySolo && !track->record.soloed))
+                continue;
+            const auto& scId = track->record.dynamicEq.bands[0].sidechainSourceId;
+            PlaybackTrack* scTrack = nullptr;
+            if (!scId.empty()) {
+                for (auto& candidate : tracks_) {
+                    if (candidate->record.id == scId) {
+                        scTrack = candidate.get();
+                        break;
+                    }
+                }
+            }
+            float* target[] {
+                track->scratch.getWritePointer(0),
+                track->scratch.getWritePointer(1)
+            };
+            if (scTrack != nullptr) {
+                const float* sidechain[] {
+                    scTrack->scratch.getReadPointer(0),
+                    scTrack->scratch.getReadPointer(1)
+                };
+                track->dynamicEq.process(target, sidechain, 2, bufferToFill.numSamples);
+            } else {
+                track->dynamicEq.process(target, nullptr, 2, bufferToFill.numSamples);
+            }
+        }
     }
 
     for (auto& track : tracks_) {
@@ -246,6 +292,30 @@ void StemEngine::updateTrack(const project::TrackRecord& record)
     if (iterator != tracks_.end()) {
         (*iterator)->record = record;
         (*iterator)->processor.setSettings(record.processing);
+        if (record.dynamicEqEnabled)
+            (*iterator)->dynamicEq.setState(record.dynamicEq);
+    }
+}
+
+void StemEngine::applyMixPassAction(const project::MixPassAction& action)
+{
+    const juce::ScopedLock guard(lock_);
+    const auto iterator = std::ranges::find_if(tracks_, [&action](const auto& track) {
+        return track->record.id == action.targetTrackId;
+    });
+    if (iterator == tracks_.end())
+        return;
+    auto& track = **iterator;
+    if (action.processorId == "gain")
+        track.record.gainDb = action.proposedValue;
+    if (action.hasProposedProcessing) {
+        track.record.processing = action.proposedProcessing;
+        track.processor.setSettings(action.proposedProcessing);
+    }
+    if (action.hasProposedDynamicEq) {
+        track.record.dynamicEq = action.proposedDynamicEq;
+        track.record.dynamicEqEnabled = true;
+        track.dynamicEq.setState(action.proposedDynamicEq);
     }
 }
 
@@ -305,11 +375,28 @@ void StemEngine::setMonitorSource(MonitorSource source)
 {
     const juce::ScopedLock guard(lock_);
     monitorSource_ = source;
+    if (source == MonitorSource::reference)
+        compareMode_ = CompareMode::reference;
+    else if (compareMode_ == CompareMode::reference)
+        compareMode_ = CompareMode::current;
 }
 
 StemEngine::MonitorSource StemEngine::monitorSource() const
 {
     return monitorSource_;
+}
+
+void StemEngine::setCompareMode(CompareMode mode)
+{
+    const juce::ScopedLock guard(lock_);
+    compareMode_ = mode;
+    monitorSource_ = mode == CompareMode::reference ? MonitorSource::reference
+                                                    : MonitorSource::mix;
+}
+
+StemEngine::CompareMode StemEngine::compareMode() const
+{
+    return compareMode_;
 }
 
 bool StemEngine::hasReference() const
@@ -402,6 +489,7 @@ bool StemEngine::renderMaster(
         project::TrackRecord record;
         std::unique_ptr<juce::AudioFormatReader> reader;
         dsp::ProcessorChain processor;
+        dsp::DynamicEqProcessor dynamicEq;
         juce::AudioBuffer<float> scratch;
     };
     std::vector<RenderTrack> renderTracks;
@@ -418,10 +506,15 @@ bool StemEngine::renderMaster(
             return false;
         }
         maximumLength = std::max(maximumLength, reader->lengthInSamples);
-        dsp::ProcessorChain processor;
-        processor.prepare(project.sampleRate, 2);
-        processor.setSettings(track.processing);
-        renderTracks.push_back({track, std::move(reader), std::move(processor), {}});
+        renderTracks.emplace_back();
+        auto& renderTrack = renderTracks.back();
+        renderTrack.record = track;
+        renderTrack.reader = std::move(reader);
+        renderTrack.processor.prepare(project.sampleRate, 2);
+        renderTrack.processor.setSettings(track.processing);
+        renderTrack.dynamicEq.prepare(project.sampleRate, 2'048, 2);
+        if (track.dynamicEqEnabled)
+            renderTrack.dynamicEq.setState(track.dynamicEq);
     }
 
     destination.deleteFile();
@@ -508,7 +601,40 @@ bool StemEngine::renderMaster(
                 bass->scratch.getWritePointer(0),
                 bass->scratch.getWritePointer(1)
             };
-            separator.process(sidechain, target, 2, samples);
+            if (bass->record.dynamicEqEnabled)
+                bass->dynamicEq.process(target, sidechain, 2, samples);
+            else
+                separator.process(sidechain, target, 2, samples);
+        }
+
+        for (auto& track : renderTracks) {
+            if (!track.record.dynamicEqEnabled || track.record.role == project::TrackRole::bass)
+                continue;
+            if (track.record.muted || (anySolo && !track.record.soloed))
+                continue;
+            const auto& scId = track.record.dynamicEq.bands[0].sidechainSourceId;
+            RenderTrack* scTrack = nullptr;
+            if (!scId.empty()) {
+                for (auto& candidate : renderTracks) {
+                    if (candidate.record.id == scId) {
+                        scTrack = &candidate;
+                        break;
+                    }
+                }
+            }
+            float* target[] {
+                track.scratch.getWritePointer(0),
+                track.scratch.getWritePointer(1)
+            };
+            if (scTrack != nullptr) {
+                const float* sidechain[] {
+                    scTrack->scratch.getReadPointer(0),
+                    scTrack->scratch.getReadPointer(1)
+                };
+                track.dynamicEq.process(target, sidechain, 2, samples);
+            } else {
+                track.dynamicEq.process(target, nullptr, 2, samples);
+            }
         }
 
         for (auto& track : renderTracks) {
@@ -625,6 +751,9 @@ std::unique_ptr<StemEngine::PlaybackTrack> StemEngine::createPlaybackTrack(
     if (prepared_) {
         track->transport.prepareToPlay(blockSize_, outputSampleRate_);
         track->processor.prepare(outputSampleRate_, 2);
+        track->dynamicEq.prepare(outputSampleRate_, blockSize_, 2);
+        if (record.dynamicEqEnabled)
+            track->dynamicEq.setState(record.dynamicEq);
         track->scratch.setSize(2, blockSize_);
     }
     return track;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mastering/assistant/MixAdvisor.h"
+#include "mastering/dsp/DynamicEq.h"
 #include "mastering/dsp/DynamicTools.h"
 #include "mastering/dsp/MasterSafetyChain.h"
 #include "mastering/project/ProjectDocument.h"
@@ -19,6 +20,13 @@ public:
         reference
     };
 
+    enum class CompareMode {
+        raw,
+        autoProcessed,
+        current,
+        reference
+    };
+
     StemEngine();
     ~StemEngine() override;
 
@@ -31,10 +39,13 @@ public:
     void loadProject(const project::ProjectDocument& project);
     void updateTrack(const project::TrackRecord& track);
     void applyPlan(const assistant::MixPlan& plan);
+    void applyMixPassAction(const project::MixPassAction& action);
     [[nodiscard]] bool loadReference(const juce::File& file, juce::String& errorMessage);
     void clearReference();
     void setMonitorSource(MonitorSource source);
     [[nodiscard]] MonitorSource monitorSource() const;
+    void setCompareMode(CompareMode mode);
+    [[nodiscard]] CompareMode compareMode() const;
     [[nodiscard]] bool hasReference() const;
     [[nodiscard]] double referenceGainDb() const;
 
@@ -67,6 +78,7 @@ private:
     dsp::DynamicSeparator kickBassSeparator_;
     std::optional<analysis::AudioMetrics> referenceMetrics_;
     MonitorSource monitorSource_ {MonitorSource::mix};
+    CompareMode compareMode_ {CompareMode::current};
     double referenceGainDb_ {0.0};
     double mixIntegratedLufs_ {-120.0};
     double outputSampleRate_ {48'000.0};

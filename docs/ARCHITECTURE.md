@@ -4,24 +4,25 @@ Mastering Audio Suite is a personal local Windows metalcore mixing ecosystem.
 
 ## Components
 
-| Component | Status after Milestone 0 | Path |
+| Component | Status after Milestone 3A | Path |
 |---|---|---|
-| Analyzer VST3 | Present; honest RT labels; float+double pass-through policy | `apps/analyzer-plugin/` |
-| Mix Node VST3 | **IMPLEMENTED** (M2A vertical slice) | Shared `MixNodeChain` |
-| Standalone Suite | Present; stem mixer + rule MixAdvisor | `apps/mix-desktop/` |
+| Analyzer VST3 | Present; honest RT labels; float+double pass-through policy; expanded roles | `apps/analyzer-plugin/` |
+| Mix Node VST3 | **IMPLEMENTED** (M2A; FL NOT MANUALLY VERIFIED) | `apps/mix-node-plugin/` + `MixNodeChain` |
+| Standalone Suite | Stem mixer + Metalcore Mix Pass V1 + legacy MixAdvisor | `apps/mix-desktop/` |
 | ML CLI | Research-only Python package | `ml/` |
-| ML Lab GUI | Missing | — |
+| ML Lab GUI | Missing (not started) | — |
 | Portable ZIP packaging | Present (`scripts/package-windows.ps1`) | CI artifact `mastering-audio-suite-windows` |
-| Actual installer | Missing (early Inno after M1 / early M2) | — |
+| Actual installer | Early Inno in CI; **NOT MANUALLY VERIFIED** | `scripts/windows-installer.iss` |
 
 ## Shared core
 
 - `modules/audio-analysis` — offline analysis + realtime meter + `PassThroughPolicy`
 - `modules/dsp` — ProcessorChain (EQ/comp) + Master Safety Chain + Dynamic EQ / FD sidechain + ExportQc
-- `modules/assistant` — MixAdvisor with absolute Action targets
-- `modules/project-bridge` — `.masuite` schema v2
-- `modules/ipc` — bridge payload validation
+- `modules/assistant` — MixAdvisor + **MetalcoreMixPass** (typed MixPassActions)
+- `modules/project-bridge` — `.masuite` schema **v3** (pairs/buses/sections/mixPassActions/DynEQ)
+- `modules/ipc` — bridge + Mix Node protocol
 - `modules/research-export` — privacy-safe ML examples
+- `benchmarks/personal/` — local stem layout (no copyrighted audio in repo)
 
 See `docs/DSP.md` for oversampler, nonlinear processors, limiter, QC, and latency contracts.
 
