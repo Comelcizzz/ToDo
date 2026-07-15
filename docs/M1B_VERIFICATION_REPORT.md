@@ -6,7 +6,7 @@
 |---|---|
 | Branch | `cursor/mastering-audio-932f` |
 | PR | https://github.com/Comelcizzz/ToDo/pull/1 |
-| Hardening SHA | *(see tip of branch after push)* |
+| Hardening SHA | `27eca068c17acfe945009341b5c0c0fa7feda447` |
 | Prior validation-tool SHA | `e2cb8ee` |
 
 ## B. Ceiling accuracy
