@@ -22,6 +22,8 @@ FetchContent_MakeAvailable(nlohmann_json)
 add_library(mastering_audio_core STATIC
     modules/audio-analysis/src/AudioAnalyzer.cpp
     modules/audio-analysis/src/LoudnessMeter.cpp
+    modules/audio-analysis/src/SpectralAnalysis.cpp
+    modules/audio-analysis/src/StreamingAnalyzer.cpp
     modules/dsp/src/ProcessorChain.cpp
     modules/dsp/src/DynamicTools.cpp
     modules/dsp/src/Oversampler.cpp
@@ -31,11 +33,17 @@ add_library(mastering_audio_core STATIC
     modules/dsp/src/EnvelopeDetector.cpp
     modules/dsp/src/DynamicEq.cpp
     modules/dsp/src/MixNodeChain.cpp
+    modules/dsp/src/ParallelCompressor.cpp
+    modules/dsp/src/StereoWidth.cpp
     modules/assistant/src/MixAdvisor.cpp
     modules/assistant/src/MetalcoreMixPass.cpp
     modules/assistant/src/MetalcoreAnalysis.cpp
     modules/assistant/src/ActionResolver.cpp
     modules/assistant/src/SectionAutomation.cpp
+    modules/assistant/src/EvidenceModel.cpp
+    modules/assistant/src/ActionBudget.cpp
+    modules/assistant/src/LoudnessMatch.cpp
+    modules/assistant/src/RenderIdentity.cpp
     modules/dsp/src/VocalRider.cpp
     modules/project-bridge/src/ProjectDocument.cpp
     modules/research-export/src/ResearchExample.cpp

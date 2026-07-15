@@ -10,7 +10,10 @@ namespace mastering::assistant {
 struct SectionOffset {
     std::string sectionId;
     std::string targetTrackId;
-    std::string parameterId; // gainDb|dynMaxCutDb|compAmount|satMix
+    // Supported parameterIds:
+    //   gainDb | dynMaxCutDb | dynThresholdDb | compThresholdDb | compMakeupDb
+    //   satMix | clipDrive | parallelWet | vocalRiderTarget | stereoWidth
+    std::string parameterId;
     double offset {0.0};
     double safeMin {-6.0};
     double safeMax {6.0};
@@ -38,8 +41,14 @@ public:
         double timeSeconds,
         double crossfadeSeconds = 0.05) noexcept;
 
+    // Emits offsets for any section-scoped action matching supported parameterIds /
+    // processor mappings (not gain-only).
     [[nodiscard]] static SectionAutomationState fromActions(
         const std::vector<project::MixPassAction>& actions);
+
+    [[nodiscard]] static bool isSupportedParameterId(const std::string& parameterId) noexcept;
+    [[nodiscard]] static std::string mapActionToParameterId(
+        const project::MixPassAction& action) noexcept;
 };
 
 } // namespace mastering::assistant
