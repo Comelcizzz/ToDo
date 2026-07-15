@@ -149,7 +149,7 @@ Dynamic EQ + FD sidechain + detector: **IMPLEMENTED**. **M1C ACCEPTED**.
 
 **Evidence:** `docs/M4A_EVIDENCE_REPORT.md`, `docs/M4A_LINUX_WINDOWS_COMPARISON.md`.
 
-**Gate:** set after tip CI — infrastructure milestone only; musical quality not proven.
+**Gate:** **MILESTONE 4A ACCEPTED** — tip `23e0f5b`, push CI [29442392596](https://github.com/Comelcizzz/ToDo/actions/runs/29442392596), PR CI [29442395468](https://github.com/Comelcizzz/ToDo/actions/runs/29442395468). Infrastructure only; musical quality not proven.
 
 ## Manual validation checklist
 
