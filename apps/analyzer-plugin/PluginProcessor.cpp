@@ -109,14 +109,16 @@ void AnalyzerProcessor::processBlock(
         buffer.getArrayOfWritePointers(),
         channels,
         samples);
-    // Never allocate on the audio thread: clamp to prepared scratch capacity.
-    const auto usableChannels = std::min(channels, floatMeterScratch_.getNumChannels());
-    const auto usableSamples = std::min(samples, floatMeterScratch_.getNumSamples());
-    if (usableSamples < samples || usableChannels < channels)
+    // Never allocate on the audio thread. If scratch is too small, keep full audio
+    // pass-through (already sanitized in-place) and drop analysis for this callback.
+    if (samples > floatMeterScratch_.getNumSamples()
+        || channels > floatMeterScratch_.getNumChannels()) {
         meter_.noteDroppedAnalysisFrames(static_cast<std::uint64_t>(
-            std::max(0, samples - usableSamples) * std::max(1, channels)));
-    if (usableSamples <= 0 || usableChannels <= 0)
+            std::max(1, samples) * std::max(1, channels)));
         return;
+    }
+    const auto usableChannels = channels;
+    const auto usableSamples = samples;
     for (int channel = 0; channel < usableChannels; ++channel) {
         const auto* source = buffer.getReadPointer(channel);
         auto* destination = floatMeterScratch_.getWritePointer(channel);

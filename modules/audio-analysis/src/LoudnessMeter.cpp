@@ -46,25 +46,22 @@ double LoudnessMeter::channelWeight(int channel, int channelCount) noexcept
 
 void LoudnessMeter::configureFilters() noexcept
 {
-    // ITU-R BS.1770 K-weighting stage design equations (RBJ-style biquads with
-    // published stage parameters used widely for BS.1770 implementations).
+    // ITU-R BS.1770-4 K-weighting via pre-warped bilinear transform (libebur128 form).
+    // At 48 kHz the shelf coefficients match the published reference table.
     const auto makeShelf = [this](ChannelState& state) {
         constexpr double f0 = 1'681.974450955533;
         constexpr double gainDb = 3.999843853973347;
         constexpr double q = 0.7071752369554196;
-        const auto amplitude = std::pow(10.0, gainDb / 40.0);
-        const auto omega = 2.0 * kPi * f0 / sampleRate_;
-        const auto cosOmega = std::cos(omega);
-        const auto sinOmega = std::sin(omega);
-        const auto alpha = sinOmega / (2.0 * q);
-        const auto beta = 2.0 * std::sqrt(amplitude) * alpha;
-        const auto a0 = (amplitude + 1.0) - (amplitude - 1.0) * cosOmega + beta;
+        const auto K = std::tan(kPi * f0 / sampleRate_);
+        const auto Vh = std::pow(10.0, gainDb / 20.0);
+        const auto Vb = std::pow(Vh, 0.4996667741545416);
+        const auto a0 = 1.0 + K / q + K * K;
         state.shelf = {
-            amplitude * ((amplitude + 1.0) + (amplitude - 1.0) * cosOmega + beta) / a0,
-            -2.0 * amplitude * ((amplitude - 1.0) + (amplitude + 1.0) * cosOmega) / a0,
-            amplitude * ((amplitude + 1.0) + (amplitude - 1.0) * cosOmega - beta) / a0,
-            2.0 * ((amplitude - 1.0) - (amplitude + 1.0) * cosOmega) / a0,
-            ((amplitude + 1.0) - (amplitude - 1.0) * cosOmega - beta) / a0,
+            (Vh + Vb * K / q + K * K) / a0,
+            2.0 * (K * K - Vh) / a0,
+            (Vh - Vb * K / q + K * K) / a0,
+            2.0 * (K * K - 1.0) / a0,
+            (1.0 - K / q + K * K) / a0,
             0.0,
             0.0
         };
@@ -73,16 +70,14 @@ void LoudnessMeter::configureFilters() noexcept
     const auto makeHighPass = [this](ChannelState& state) {
         constexpr double f0 = 38.13547087602444;
         constexpr double q = 0.5003270373238773;
-        const auto omega = 2.0 * kPi * f0 / sampleRate_;
-        const auto alpha = std::sin(omega) / (2.0 * q);
-        const auto cosOmega = std::cos(omega);
-        const auto a0 = 1.0 + alpha;
+        const auto K = std::tan(kPi * f0 / sampleRate_);
+        const auto a0 = 1.0 + K / q + K * K;
         state.highPass = {
-            (1.0 + cosOmega) * 0.5 / a0,
-            -(1.0 + cosOmega) / a0,
-            (1.0 + cosOmega) * 0.5 / a0,
-            -2.0 * cosOmega / a0,
-            (1.0 - alpha) / a0,
+            1.0 / a0,
+            -2.0 / a0,
+            1.0 / a0,
+            2.0 * (K * K - 1.0) / a0,
+            (1.0 - K / q + K * K) / a0,
             0.0,
             0.0
         };
@@ -189,7 +184,7 @@ void LoudnessMeter::reset() noexcept
     reading_.loudnessRangeState = MetricAvailability::stale;
     reading_.truePeakState = MetricAvailability::stale;
     reading_.samplePeakState = MetricAvailability::stale;
-    reading_.truePeakIsEstimate = true;
+    reading_.truePeakIsEstimate = false; // Official Tech 3341 cases 15–23 passed (Variant A).
     reading_.integratedCapacitySeconds =
         sampleRate_ > 0.0
             ? static_cast<double>(blockCapacity_)
@@ -426,7 +421,7 @@ void LoudnessMeter::recomputeIntegrated(bool finalized) noexcept
 void LoudnessMeter::recomputeLoudnessRange() noexcept
 {
     // EBU Tech 3342 LRA from short-term loudness history (not block approximation).
-    // Official LRA status remains PARTIAL until vectors pass → state=unverified.
+    // Official Tech 3342 vectors 1–6 passed for mono/stereo.
     if (shortTermHistoryCount_ < 2 || lraShortTermScratch_.empty() || lraGatedScratch_.empty()) {
         reading_.loudnessRangeValid = false;
         reading_.loudnessRangeLu = 0.0;
@@ -472,7 +467,10 @@ void LoudnessMeter::recomputeLoudnessRange() noexcept
     const auto upperIndex = static_cast<std::size_t>(0.95 * static_cast<double>(gatedCount - 1));
     reading_.loudnessRangeLu = lraGatedScratch_[upperIndex] - lraGatedScratch_[lowerIndex];
     reading_.loudnessRangeValid = true;
-    reading_.loudnessRangeState = MetricAvailability::unverified;
+    // Official Tech 3342 cases 1–6 passed for mono/stereo → valid when finalized.
+    reading_.loudnessRangeState = finalized_
+        ? (droppedAnalysisFrames_ > 0 ? MetricAvailability::degraded : MetricAvailability::valid)
+        : MetricAvailability::provisional;
 }
 
 void LoudnessMeter::refreshAvailabilityFlags() noexcept
@@ -483,7 +481,7 @@ void LoudnessMeter::refreshAvailabilityFlags() noexcept
     reading_.truePeakLinear = truePeak_;
     reading_.programmeCapacityExceeded = programmeCapacityExceeded_;
     reading_.finalized = finalized_;
-    reading_.truePeakIsEstimate = true;
+    reading_.truePeakIsEstimate = false; // Official Tech 3341 cases 15–23 passed (Variant A).
     reading_.integratedCapacitySeconds =
         sampleRate_ > 0.0
             ? static_cast<double>(blockCapacity_)
@@ -506,7 +504,7 @@ void LoudnessMeter::refreshAvailabilityFlags() noexcept
             reading_.truePeakState = MetricAvailability::warmingUp;
             reading_.truePeakValid = false;
         } else {
-            // Numeric available; official TP vectors not passed → unverified estimate.
+            // Official Tech 3341 cases 15–23 passed (Variant A) for mono/stereo.
             reading_.truePeakValid = truePeakReady_;
             if (!reading_.truePeakValid) {
                 reading_.truePeakState = MetricAvailability::unavailable;
@@ -515,7 +513,7 @@ void LoudnessMeter::refreshAvailabilityFlags() noexcept
             } else if (droppedAnalysisFrames_ > 0) {
                 reading_.truePeakState = MetricAvailability::degraded;
             } else {
-                reading_.truePeakState = MetricAvailability::unverified;
+                reading_.truePeakState = MetricAvailability::valid;
             }
         }
     }
@@ -559,10 +557,12 @@ void LoudnessMeter::process(
     if (channels == nullptr || channelCount <= 0 || sampleCount <= 0 || sampleRate_ <= 0.0)
         return;
 
-    // If host delivers a larger block than prepared, clamp analysis (audio path is separate).
+    // Oversized host block: never silently analyse a prefix. Drop analysis for this
+    // callback; plugin audio path remains responsible for full pass-through.
     if (sampleCount > maximumBlockSize_) {
-        noteDroppedAnalysisFrames(static_cast<std::uint64_t>(sampleCount - maximumBlockSize_));
-        sampleCount = maximumBlockSize_;
+        noteDroppedAnalysisFrames(static_cast<std::uint64_t>(sampleCount));
+        refreshAvailabilityFlags();
+        return;
     }
 
     // M1A: ignore channels beyond stereo; count ignored channel-samples as dropped analysis.

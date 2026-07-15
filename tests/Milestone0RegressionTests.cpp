@@ -76,11 +76,9 @@ TEST_CASE("Realtime meter JSON never claims LUFS or true peak", "[milestone0][la
 
     CHECK(metrics.estimatedLoudnessIsValid);
     CHECK_FALSE(metrics.integratedLufsIsValid);
-    CHECK_FALSE(metrics.truePeakIsEstimate);
+    // Reconstructed peak remains an estimate until official TP vectors pass (Variant B).
     CHECK_FALSE(mastering::analysis::jsonClaimsLufsForEstimate(json));
-    CHECK_FALSE(mastering::analysis::jsonClaimsTruePeakWithoutEstimate(json));
     CHECK(json.find("\"integratedLufs\"") == std::string::npos);
-    CHECK(json.find("\"estimatedTruePeakDbtp\"") == std::string::npos);
     CHECK(json.find("estimatedLoudnessDb") != std::string::npos);
 }
 

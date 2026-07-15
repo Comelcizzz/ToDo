@@ -25,8 +25,9 @@ describe("Mastering Audio UI", () => {
     expect(screen.getByText("Short-term")).toBeInTheDocument();
     expect(screen.getByText("Integrated")).toBeInTheDocument();
     expect(screen.getAllByText("True Peak").length).toBeGreaterThan(0);
+    expect(screen.getByText("LRA")).toBeInTheDocument();
     expect(screen.getByText("Analysis frames dropped")).toBeInTheDocument();
-    expect(screen.getAllByText("Unavailable").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Unavailable|LRA unavailable/).length).toBeGreaterThan(0);
     unmount();
   });
 });

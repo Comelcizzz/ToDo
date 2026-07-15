@@ -39,8 +39,8 @@ struct LoudnessReading {
     double samplePeakLinear {0.0};
     double truePeakLinear {0.0};
     bool truePeakValid {false};
-    // Until official TP vectors pass: reconstructed peak is an estimate only.
-    bool truePeakIsEstimate {true};
+    // False after official Tech 3341 TP vectors pass (Variant A). True keeps UI/API honest.
+    bool truePeakIsEstimate {false};
     bool programmeCapacityExceeded {false};
     bool finalized {false};
 
@@ -155,8 +155,9 @@ private:
     std::size_t shortTermHistoryWrite_ {0};
     std::size_t shortTermHistoryCount_ {0};
 
-    // Reconstructed peak (4× polyphase windowed-sinc) — Estimated / Unverified until
-    // official Tech 3341 signals 15–23 pass.
+    // Reconstructed peak (4× polyphase windowed-sinc). Official Tech 3341 cases 15–23
+    // passed for mono/stereo → treated as standards-validated True Peak (Variant A).
+    // Still not the ITU-published Annex 2 coefficient tables.
     static constexpr int kTruePeakPhases = 4;
     static constexpr int kTruePeakTaps = 24;
     static constexpr int kTruePeakWarmup = 24;

@@ -47,6 +47,7 @@ struct AudioMetrics {
     std::string shortTermState {"unavailable"};
     std::string integratedState {"unavailable"};
     std::string truePeakState {"unavailable"};
+    std::string loudnessRangeState {"unavailable"};
     std::uint64_t droppedAnalysisFrames {0};
 
     double crestFactorDb {0.0};

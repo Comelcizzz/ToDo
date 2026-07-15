@@ -2,28 +2,42 @@
 
 Statuses: `IMPLEMENTED` | `PARTIAL` | `STUB` | `MOCK` | `MISSING`
 
-Updated after M1A hardening (post-`4b95074` audit).
+## Scope
 
-| Feature | Status | Evidence | Limitation |
-|---|---|---|---|
-| Analyzer float/double pass-through | IMPLEMENTED | bit-transparency tests; double scratch capped in prepare | Oversize blocks clamp analysis |
-| Sample peak | IMPLEMENTED | LoudnessMeter + tests | — |
-| True-peak meter | PARTIAL | 4× polyphase windowed-sinc; block-boundary/atypical size tests | Not ITU published coeffs; no official ISP vectors in CI |
-| Momentary LUFS | PARTIAL | 400 ms window; warmingUp until ready | Official Tech 3341 WAV absent |
-| Short-term LUFS | PARTIAL | 3 s window; warmingUp until ready | Official vectors absent |
-| Integrated LUFS | PARTIAL | BS.1770 gating; RT=`provisional`, finalize=`valid` | Official vectors absent; RT provisional until finalize |
-| LRA | PARTIAL | Percentile algorithm on ST approx; finalize-only | Not Tech 3342 certified; no official LRA vectors |
-| RT/offline shared core | IMPLEMENTED | Same LoudnessMeter | Integrated provisional differs until finalize |
-| Block/SR invariance matrix | PARTIAL | `metering-validation.json/.md` artifact | Expanded SR/block matrix for TP; LUFS subset |
-| Official EBU/ITU vectors | MISSING | `manifest.json` + fetch script | Files not redistributed; compliance blocked |
-| Analyzer UI states | IMPLEMENTED | Warming up / Provisional / Unavailable / Degraded + dropped frames | No screenshot pack in CI |
-| Audio-thread safety | PARTIAL | No alloc/lock/IO in process after prepare; publish on UI timer | No ASan audio-thread guard in CI yet |
-| ZIP packaging | IMPLEMENTED | CI artifact | Not installer |
-| Actual installer | MISSING | — | — |
-| Mix Node | MISSING | — | — |
-| ML CLI | PARTIAL | research only | — |
-| ML Lab GUI | MISSING | — | — |
+| Layout | Status |
+|---|---|
+| Mono / stereo | In scope |
+| Multichannel / 5.1 / surround | **OUT OF SCOPE / MISSING** |
+
+## Per-metric status (M1A)
+
+| Metric | Algorithm status | Official vectors | Synthetic matrix | RT/offline match | Final status |
+|---|---|---|---|---|---|
+| Sample Peak | max\|x\| | n/a | yes | yes | **IMPLEMENTED** |
+| Momentary LUFS | BS.1770 400 ms | Tech 3341-12 PASS | yes | yes | **IMPLEMENTED** |
+| Short-term LUFS | BS.1770 3 s | Tech 3341-9 PASS | yes | yes | **IMPLEMENTED** |
+| Integrated LUFS | gated programme; 6 h cap → degraded | Tech 3341-1…5,7,8 PASS | yes | provisional until finalize | **IMPLEMENTED** |
+| True Peak | 4×/24 Hann-sinc (Variant A) | Tech 3341-15…23 PASS | yes | finalize flushes FIR tail | **IMPLEMENTED** |
+| LRA | Tech 3342 percentiles | Tech 3342-1…6 PASS | yes | finalize-only | **IMPLEMENTED** |
+| RMS / Crest / Correlation | Analyzer | n/a | yes | yes | **IMPLEMENTED** |
+
+Surround / 5.1 case Tech 3341-6: **SKIP / OUT OF SCOPE**.
+
+## Supporting features
+
+| Feature | Status | Notes |
+|---|---|---|
+| Official EBU fetch + SHA verify | IMPLEMENTED | WAVs gitignored; `present=24 missing=0` |
+| Official validation artifacts | IMPLEMENTED | `metering-official-validation.*` |
+| K-weight FR matrix | IMPLEMENTED | `kweight-frequency-response.*` |
+| FIR start/end / finalize / reset tests | IMPLEMENTED | `TruePeakFirTailTests` |
+| Audio-callback safety | PARTIAL | Linux alloc hook + oversize drop; no lock/IO/JSON on callback |
+| Analyzer UI states | IMPLEMENTED | Full state set + True Peak / LRA labels |
+| ZIP packaging | IMPLEMENTED | Not an installer |
+| Milestone 1B / 1C | — | **Not started** |
 
 ## Gate
 
-**M1A REMAINS PARTIAL** — official vectors not obtained/passed in this environment.
+Official vectors loaded + hashed; LUFS/LRA/TP PASS; FIR tail finalized; matrices + artifacts present; UI honest; Windows CI required for compliance commit.
+
+**Overall M1A:** closable for mono/stereo metering when Windows CI is green for this compliance revision. Multichannel remains out of scope.

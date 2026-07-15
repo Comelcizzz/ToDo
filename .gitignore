@@ -24,3 +24,7 @@ testdata/official/**
 !testdata/official/
 !testdata/official/MANIFEST.md
 !testdata/official/manifest.json
+!testdata/official/metering-official-validation.json
+!testdata/official/metering-official-validation.md
+!testdata/official/kweight-frequency-response.json
+!testdata/official/kweight-frequency-response.md

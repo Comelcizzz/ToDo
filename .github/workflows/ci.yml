@@ -26,7 +26,11 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++ cmake ninja-build
+          sudo apt-get install -y g++ cmake ninja-build curl file
+      - name: Fetch official EBU loudness vectors
+        run: |
+          ./scripts/fetch-loudness-testdata.sh auto || ./scripts/fetch-loudness-testdata.sh manual
+        continue-on-error: true
       - name: Configure and test core
         run: |
           cmake -S . -B build/core -G Ninja \
@@ -36,6 +40,22 @@ jobs:
             -DMASTERING_AUDIO_BUILD_TESTS=ON
           cmake --build build/core --parallel
           ctest --test-dir build/core --output-on-failure
+          # Re-run official suite when WAVs present to refresh compliance artifacts
+          if [[ -d testdata/official/wav ]] && compgen -G "testdata/official/wav/*.wav" > /dev/null; then
+            ./build/core/mastering_audio_tests "[official]" --reporter compact
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: metering-compliance-artifacts
+          path: |
+            testdata/official/metering-official-validation.json
+            testdata/official/metering-official-validation.md
+            testdata/official/kweight-frequency-response.json
+            testdata/official/kweight-frequency-response.md
+            build/core/metering-validation.json
+            build/core/metering-validation.md
+          if-no-files-found: warn
 
   ml-research:
     runs-on: ubuntu-latest
@@ -82,3 +102,13 @@ jobs:
         with:
           name: mastering-audio-suite-windows
           path: dist/windows/MasteringAudioSuite-windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: metering-compliance-artifacts-windows
+          path: |
+            testdata/official/metering-official-validation.json
+            testdata/official/metering-official-validation.md
+            build/metering-validation.json
+            build/metering-validation.md
+          if-no-files-found: warn

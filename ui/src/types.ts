@@ -37,6 +37,7 @@ export interface AudioMetrics {
   shortTermState?: string;
   integratedState?: string;
   truePeakState?: string;
+  loudnessRangeState?: string;
   droppedAnalysisFrames?: number;
   crestFactorDb: number;
   stereoCorrelation: number;
@@ -99,6 +100,7 @@ export const emptyMetrics: AudioMetrics = {
   shortTermState: "unavailable",
   integratedState: "unavailable",
   truePeakState: "unavailable",
+  loudnessRangeState: "unavailable",
   droppedAnalysisFrames: 0,
   crestFactorDb: 0,
   stereoCorrelation: 1,

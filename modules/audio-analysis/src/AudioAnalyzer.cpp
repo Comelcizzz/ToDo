@@ -109,8 +109,8 @@ void applyLoudnessReading(AudioMetrics& metrics, const LoudnessReading& reading)
     metrics.samplePeakDbfs = toDb(reading.samplePeakLinear);
     metrics.truePeakDbtp = toDb(reading.truePeakLinear);
     metrics.truePeakValid = reading.truePeakValid;
-    metrics.estimatedTruePeakDbtp = metrics.truePeakDbtp;
-    metrics.truePeakIsEstimate = false;
+    metrics.truePeakIsEstimate = reading.truePeakIsEstimate;
+    metrics.estimatedTruePeakDbtp = reading.truePeakIsEstimate ? metrics.truePeakDbtp : -120.0;
     metrics.momentaryLufs = reading.momentaryLufs;
     metrics.momentaryLufsIsValid = reading.momentaryValid;
     metrics.shortTermLufs = reading.shortTermLufs;
@@ -124,6 +124,7 @@ void applyLoudnessReading(AudioMetrics& metrics, const LoudnessReading& reading)
     metrics.shortTermState = metricAvailabilityToString(reading.shortTermState);
     metrics.integratedState = metricAvailabilityToString(reading.integratedState);
     metrics.truePeakState = metricAvailabilityToString(reading.truePeakState);
+    metrics.loudnessRangeState = metricAvailabilityToString(reading.loudnessRangeState);
     metrics.droppedAnalysisFrames = reading.droppedAnalysisFrames;
 }
 
@@ -358,6 +359,7 @@ std::string toJson(const AudioMetrics& metrics)
            << R"(,"shortTermState":")" << metrics.shortTermState << '"'
            << R"(,"integratedState":")" << metrics.integratedState << '"'
            << R"(,"truePeakState":")" << metrics.truePeakState << '"'
+           << R"(,"loudnessRangeState":")" << metrics.loudnessRangeState << '"'
            << R"(,"droppedAnalysisFrames":)" << metrics.droppedAnalysisFrames;
     if (metrics.truePeakValid)
         output << R"(,"truePeakDbtp":)" << metrics.truePeakDbtp;

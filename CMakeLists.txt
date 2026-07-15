@@ -63,6 +63,10 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tests/AudioAnalyzerTests.cpp
         tests/LoudnessMeterTests.cpp
         tests/TruePeakAndLoudnessHardeningTests.cpp
+        tests/TruePeakFirTailTests.cpp
+        tests/OfficialVectorTests.cpp
+        tests/KWeightFrequencyResponseTests.cpp
+        tests/AnalyzerRealtimeSafetyTests.cpp
         tests/MeteringValidationTests.cpp
         tests/ProcessorChainTests.cpp
         tests/ProjectDocumentTests.cpp

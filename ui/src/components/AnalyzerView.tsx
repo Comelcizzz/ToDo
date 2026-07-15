@@ -23,8 +23,10 @@ type MetricState =
   | "warmingUp"
   | "valid"
   | "provisional"
+  | "unverified"
   | "stale"
-  | "degraded";
+  | "degraded"
+  | "invalidInput";
 
 function stateLabel(state: string | undefined, fallback: MetricState = "unavailable"): string {
   switch (state as MetricState) {
@@ -34,10 +36,14 @@ function stateLabel(state: string | undefined, fallback: MetricState = "unavaila
       return "Valid";
     case "provisional":
       return "Provisional";
+    case "unverified":
+      return "Unverified";
     case "stale":
       return "Stale";
     case "degraded":
       return "Degraded";
+    case "invalidInput":
+      return "Invalid input";
     case "unavailable":
     default:
       return fallback === "warmingUp" ? "Warming up" : "Unavailable";
@@ -51,17 +57,28 @@ function formatWhenValid(
 ): string {
   if (state === "warmingUp")
     return "Warming up";
-  if (state === "stale" || state === "unavailable" || !valid)
+  if (state === "stale" || state === "unavailable" || state === "invalidInput")
+    return state === "invalidInput" ? "Invalid input" : "Unavailable";
+  if (!valid && state !== "unverified" && state !== "provisional" && state !== "degraded")
     return "Unavailable";
   if (value === undefined || !Number.isFinite(value))
     return "Unavailable";
-  const suffix = state === "provisional" ? " (provisional)" : state === "degraded" ? " (degraded)" : "";
-  return `${value.toFixed(1)}${suffix}`;
+  if (state === "provisional")
+    return `${value.toFixed(1)} (provisional)`;
+  if (state === "degraded")
+    return `${value.toFixed(1)} (degraded)`;
+  if (state === "unverified")
+    return `${value.toFixed(1)} (unverified)`;
+  return value.toFixed(1);
 }
 
 export function AnalyzerView({ state }: { state: SuiteState }) {
   const metrics = state.analyzerMetrics ?? emptyMetrics;
   const dropped = metrics.droppedAnalysisFrames ?? 0;
+  const truePeakLabel = metrics.truePeakIsEstimate ? "Estimated True Peak" : "True Peak";
+  const lraState = metrics.loudnessRangeState ?? "unavailable";
+  const showLraNumber =
+    metrics.loudnessRangeIsValid === true && lraState !== "unavailable" && lraState !== "stale";
 
   return (
     <main className="plugin-layout">
@@ -134,7 +151,7 @@ export function AnalyzerView({ state }: { state: SuiteState }) {
           <small>{stateLabel(metrics.integratedState)} · LUFS</small>
         </div>
         <div className="metric-card" data-state={metrics.truePeakState ?? "unavailable"}>
-          <span>True Peak</span>
+          <span>{truePeakLabel}</span>
           <strong>
             {formatWhenValid(metrics.truePeakValid, metrics.truePeakState, metrics.truePeakDbtp)}
           </strong>
@@ -145,17 +162,30 @@ export function AnalyzerView({ state }: { state: SuiteState }) {
           <strong>{metrics.samplePeakDbfs.toFixed(1)}</strong>
           <small>dBFS</small>
         </div>
+        <div className="metric-card" data-state={lraState}>
+          <span>LRA</span>
+          <strong>
+            {showLraNumber
+              ? formatWhenValid(true, lraState, metrics.loudnessRangeLu)
+              : lraState === "unverified"
+                ? "LRA unverified"
+                : "LRA unavailable"}
+          </strong>
+          <small>{stateLabel(lraState)} · LU</small>
+        </div>
         <div className="metric-card" data-state={dropped > 0 ? "degraded" : "valid"}>
           <span>Analysis frames dropped</span>
-          <strong>{dropped}</strong>
-          <small>{dropped > 0 ? "Degraded analysis" : "Healthy"}</small>
+          <strong>
+            {dropped > 0 ? `Analysis degraded — ${dropped} frames dropped` : "0"}
+          </strong>
+          <small>{dropped > 0 ? "Degraded" : "Healthy"}</small>
         </div>
       </section>
 
       <section className="panel">
         <Meter label="Sample Peak" value={metrics.samplePeakDbfs} />
         <Meter
-          label="True Peak"
+          label={truePeakLabel}
           value={metrics.truePeakValid ? (metrics.truePeakDbtp ?? -120) : -120}
         />
         <Meter
