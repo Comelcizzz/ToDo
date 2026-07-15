@@ -115,12 +115,14 @@ No arbitrary CPU pass/fail gate.
 
 ## J. CI
 
-| Job | Expectation |
+| Job | Result |
 |---|---|
-| Linux `core` | ctest + `[milestone1b]` + `dsp_validation_render` |
-| Windows `windows-products` | products + tests + validation tool + ZIP |
+| Linux `core` | **success** (ctest + `[milestone1b]` + `dsp_validation_render`) |
+| Linux `ui` / `ml-research` | **success** |
+| Windows `windows-products` | **success** (products + tests + validation + ZIP) |
+| Push run | https://github.com/Comelcizzz/ToDo/actions/runs/29380092766 |
 | Artifacts | `dsp-validation-artifacts`, `dsp-validation-artifacts-windows`, `dsp-benchmark-summary`, `mastering-audio-suite-windows` |
-| Test count | 14 `[milestone1b]` cases / ~20k assertions locally green |
+| Local test count | 67 ctest / 14 `[milestone1b]` cases / ~20 189 assertions |
 
 ## K. Remaining limitations
 
