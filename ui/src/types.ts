@@ -64,8 +64,32 @@ export interface Suggestion {
   confidence: number;
 }
 
+export interface MixNodeInfo {
+  instanceId: string;
+  trackName: string;
+  role: string;
+  channelPosition: string;
+  pairId?: string;
+  parentBusId?: string;
+  connected: boolean;
+  stateRevision: number;
+  latencySamples: number;
+  sampleRate: number;
+  sidechainActive?: boolean;
+  status: string;
+  projectId?: string;
+  inputGainDb?: number;
+  outputGainDb?: number;
+  eqFreq?: number;
+  eqGain?: number;
+  dynThreshold?: number;
+  dynMaxCut?: number;
+  satDrive?: number;
+  bypass?: boolean;
+}
+
 export interface SuiteState {
-  product: "plugin" | "desktop";
+  product: "plugin" | "desktop" | "mix-node";
   connected: boolean;
   projectId: string;
   projectName: string;
@@ -82,6 +106,34 @@ export interface SuiteState {
   selectedVariant?: string;
   variants?: string[];
   exportBitDepth?: number;
+  mixNodes?: MixNodeInfo[];
+  selectedMixNodeId?: string;
+  suiteSessionId?: string;
+  // Mix Node plugin surface
+  trackName?: string;
+  role?: string;
+  channelPosition?: string;
+  status?: string;
+  instanceId?: string;
+  sessionId?: string;
+  stateRevision?: number;
+  latencySamples?: number;
+  sampleRate?: number;
+  previewActive?: boolean;
+  bypass?: boolean;
+  inputGainDb?: number;
+  outputGainDb?: number;
+  eqFreq?: number;
+  eqGain?: number;
+  dynThreshold?: number;
+  dynMaxCut?: number;
+  satDrive?: number;
+  saturationEnabled?: boolean;
+  inputPeakDb?: number;
+  outputPeakDb?: number;
+  grDb?: number;
+  sidechainPeakDb?: number;
+  degraded?: boolean;
 }
 
 export const emptyMetrics: AudioMetrics = {

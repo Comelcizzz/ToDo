@@ -1,5 +1,6 @@
 #include "mix-desktop/MainComponent.h"
 #include "mastering/ipc/BridgeProtocol.h"
+#include "mastering/ipc/MixNodeProtocol.h"
 #include "mastering/research/ResearchExample.h"
 
 #include <algorithm>
@@ -39,6 +40,12 @@ MainComponent::MainComponent()
         juce::MessageManager::callAsync([safeThis, report] {
             if (safeThis != nullptr)
                 safeThis->handleBridgeAnalysis(report);
+        });
+    });
+    bridge_.setMixNodeHandler([safeThis](const ipc::MixNodeEnvelope& env, const juce::String& raw) {
+        juce::MessageManager::callAsync([safeThis, env, raw] {
+            if (safeThis != nullptr)
+                safeThis->handleMixNodeMessage(env, raw);
         });
     });
     bridge_.start();
@@ -184,6 +191,14 @@ void MainComponent::handleCommand(const juce::var& command)
                 track->polarityInverted = !track->polarityInverted;
             engine_.updateTrack(*track);
         }
+    } else if (type == "mix-node-preview"
+        || type == "mix-node-commit"
+        || type == "mix-node-cancel-preview"
+        || type == "mix-node-undo"
+        || type == "mix-node-request-state") {
+        sendMixNodeAction(type, command);
+    } else if (type == "select-mix-node") {
+        selectedMixNodeId_ = object->getProperty("instanceId").toString();
     }
     pushState();
 }
@@ -266,7 +281,101 @@ void MainComponent::createProject()
     selectedVariant_ = assistant::MixVariant::balanced;
     referenceMetrics_.reset();
     engine_.loadProject(project_);
+    bridge_.setSuiteSession(juce::String(project_.id), juce::String(project::makeProjectId()));
     pushState();
+}
+
+void MainComponent::handleMixNodeMessage(const ipc::MixNodeEnvelope& env, const juce::String&)
+{
+    MixNodeConnectionInfo info;
+    info.connected = true;
+    info.lastHeartbeatMs = env.timestampMs;
+    info.identity.projectId = env.projectId;
+    info.identity.sessionId = env.sessionId;
+    info.identity.instanceId = env.instanceId;
+
+    if (!env.payloadJson.empty()) {
+        ipc::MixNodeProtocolError err;
+        if (auto host = ipc::parseHostState(env.payloadJson, &err)) {
+            info.identity = host->identity;
+            info.lastKnown = host->committed;
+            info.stateRevision = host->stateRevision;
+            info.status = "committed";
+        }
+    }
+
+    // Source of truth: host plugin committed DSP. Suite stores orchestration only.
+    // Reject cross-project registrations silently for isolation.
+    if (!bridge_.suiteProjectId().isEmpty()
+        && !env.projectId.empty()
+        && env.projectId != bridge_.suiteProjectId().toStdString()
+        && env.type == ipc::MixNodeMessageType::RegisterInstance) {
+        // Still track under its own project key for multi-project awareness.
+        info.status = "other-project";
+    }
+
+    if (env.type == ipc::MixNodeMessageType::Disconnect)
+        info.connected = false;
+
+    if (!info.identity.instanceId.empty())
+        bridge_.upsertMixNode(info);
+}
+
+void MainComponent::sendMixNodeAction(const juce::String& messageType, const juce::var& command)
+{
+    const auto* object = command.getDynamicObject();
+    if (object == nullptr)
+        return;
+
+    const auto instanceId = object->getProperty("instanceId").toString().toStdString();
+    ipc::MixNodeEnvelope env;
+    env.mixNodeProtocolVersion = ipc::kMixNodeProtocolVersion;
+    env.projectId = bridge_.suiteProjectId().toStdString();
+    env.sessionId = bridge_.suiteSessionId().toStdString();
+    env.instanceId = instanceId;
+    env.messageId = project::makeProjectId();
+    env.timestampMs = juce::Time::currentTimeMillis();
+    env.requiresAck = true;
+
+    if (messageType == "mix-node-cancel-preview") {
+        env.type = ipc::MixNodeMessageType::CancelPreview;
+        env.payloadJson = "{}";
+    } else if (messageType == "mix-node-request-state") {
+        env.type = ipc::MixNodeMessageType::RequestState;
+        env.payloadJson = "{}";
+    } else if (messageType == "mix-node-undo") {
+        env.type = ipc::MixNodeMessageType::Undo;
+        env.payloadJson = "{}";
+    } else {
+        ipc::MixNodeAction action;
+        action.actionId = object->getProperty("actionId").toString().isNotEmpty()
+            ? object->getProperty("actionId").toString().toStdString()
+            : project::makeProjectId();
+        action.actionVersion = 1;
+        action.projectId = env.projectId;
+        action.sessionId = env.sessionId;
+        action.targetInstanceId = instanceId;
+        action.processorId = object->getProperty("processorId").toString().toStdString();
+        action.parameterId = object->getProperty("parameterId").toString().toStdString();
+        action.previousValue = static_cast<double>(object->getProperty("previousValue"));
+        action.proposedValue = static_cast<double>(object->getProperty("proposedValue"));
+        action.allowedMin = -120.0;
+        action.allowedMax = 24.0;
+        if (object->hasProperty("allowedMin"))
+            action.allowedMin = static_cast<double>(object->getProperty("allowedMin"));
+        if (object->hasProperty("allowedMax"))
+            action.allowedMax = static_cast<double>(object->getProperty("allowedMax"));
+        action.preview = messageType == "mix-node-preview";
+        action.origin = "suite";
+        action.explanation = object->getProperty("explanation").toString().toStdString();
+        action.createdAtMs = env.timestampMs;
+        action.state = action.preview ? ipc::ActionLifecycle::previewing : ipc::ActionLifecycle::pending;
+        env.type = action.preview ? ipc::MixNodeMessageType::PreviewAction
+                                  : ipc::MixNodeMessageType::CommitAction;
+        env.payloadJson = ipc::serializeAction(action);
+    }
+
+    bridge_.sendToAll(juce::String(ipc::serializeEnvelope(env)));
 }
 
 void MainComponent::chooseProjectToOpen()
@@ -477,6 +586,7 @@ void MainComponent::openProject(const juce::File& file)
     projectFile_ = file;
     currentPlan_ = {};
     planVariants_.clear();
+    bridge_.setSuiteSession(juce::String(project_.id), juce::String(project::makeProjectId()));
     engine_.loadProject(project_);
     if (!project_.referencePath.empty()) {
         juce::String referenceError;
@@ -580,6 +690,36 @@ void MainComponent::pushState()
     for (const auto& plan : planVariants_)
         variants.add(juce::String(assistant::mixVariantToString(plan.variant)));
     object->setProperty("variants", variants);
+
+    juce::Array<juce::var> mixNodes;
+    for (const auto& node : bridge_.mixNodes()) {
+        auto* n = new juce::DynamicObject();
+        n->setProperty("instanceId", juce::String(node.identity.instanceId));
+        n->setProperty("trackName", juce::String(node.identity.trackName));
+        n->setProperty("role", juce::String(ipc::rolePresetToString(node.identity.role)));
+        n->setProperty("channelPosition", juce::String(ipc::channelPositionToString(node.identity.channelPosition)));
+        n->setProperty("pairId", juce::String(node.identity.pairId));
+        n->setProperty("parentBusId", juce::String(node.identity.parentBusId));
+        n->setProperty("connected", node.connected);
+        n->setProperty("stateRevision", static_cast<int>(node.stateRevision));
+        n->setProperty("latencySamples", node.latencySamples);
+        n->setProperty("sampleRate", node.sampleRate);
+        n->setProperty("sidechainActive", node.sidechainActive);
+        n->setProperty("status", juce::String(node.status));
+        n->setProperty("projectId", juce::String(node.identity.projectId));
+        n->setProperty("inputGainDb", node.lastKnown.inputGainDb);
+        n->setProperty("outputGainDb", node.lastKnown.outputGainDb);
+        n->setProperty("eqFreq", node.lastKnown.staticEq.frequencyHz);
+        n->setProperty("eqGain", node.lastKnown.staticEq.gainDb);
+        n->setProperty("dynThreshold", node.lastKnown.dynamicEq.bands[0].thresholdDb);
+        n->setProperty("dynMaxCut", node.lastKnown.dynamicEq.bands[0].maxCutDb);
+        n->setProperty("satDrive", node.lastKnown.saturation.drive);
+        n->setProperty("bypass", node.lastKnown.bypass);
+        mixNodes.add(juce::var(n));
+    }
+    object->setProperty("mixNodes", mixNodes);
+    object->setProperty("suiteSessionId", bridge_.suiteSessionId());
+    object->setProperty("selectedMixNodeId", selectedMixNodeId_);
     webView_.pushState(state);
 }
 

@@ -11,7 +11,8 @@ class WebViewComponent final : public juce::Component {
 public:
     enum class Product {
         analyzerPlugin,
-        desktopSuite
+        desktopSuite,
+        mixNode
     };
 
     explicit WebViewComponent(Product product);

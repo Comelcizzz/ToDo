@@ -30,10 +30,13 @@ add_library(mastering_audio_core STATIC
     modules/dsp/src/ExportQc.cpp
     modules/dsp/src/EnvelopeDetector.cpp
     modules/dsp/src/DynamicEq.cpp
+    modules/dsp/src/MixNodeChain.cpp
     modules/assistant/src/MixAdvisor.cpp
     modules/project-bridge/src/ProjectDocument.cpp
     modules/research-export/src/ResearchExample.cpp
     modules/ipc/src/BridgeProtocol.cpp
+    modules/ipc/src/MixNodeProtocol.cpp
+    modules/ipc/src/MixNodeController.cpp
 )
 
 target_include_directories(mastering_audio_core
@@ -84,6 +87,7 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tests/TruePeakLimiterM1BTests.cpp
         tests/M1BVerificationTests.cpp
         tests/DynamicEqTests.cpp
+        tests/MixNodeTests.cpp
     )
     target_link_libraries(mastering_audio_tests
         PRIVATE
@@ -100,6 +104,11 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tools/dynamic-processing-validation/main.cpp
     )
     target_link_libraries(dynamic_processing_validation PRIVATE mastering_audio_core)
+
+    add_executable(mix_node_validation
+        tools/mix-node-validation/main.cpp
+    )
+    target_link_libraries(mix_node_validation PRIVATE mastering_audio_core)
 
     include(CTest)
     include(Catch)
@@ -161,6 +170,44 @@ if(MASTERING_AUDIO_BUILD_PRODUCTS)
             juce::juce_recommended_warning_flags
     )
 
+    juce_add_plugin(MasteringAudioMixNode
+        COMPANY_NAME "Mastering Audio"
+        BUNDLE_ID "audio.mastering.mixnode"
+        PLUGIN_MANUFACTURER_CODE MsAu
+        PLUGIN_CODE MsMn
+        FORMATS VST3
+        PRODUCT_NAME "Mastering Audio Mix Node"
+        IS_SYNTH FALSE
+        NEEDS_MIDI_INPUT FALSE
+        NEEDS_MIDI_OUTPUT FALSE
+        IS_MIDI_EFFECT FALSE
+        EDITOR_WANTS_KEYBOARD_FOCUS TRUE
+        NEEDS_WEB_BROWSER TRUE
+        NEEDS_WEBVIEW2 TRUE
+        COPY_PLUGIN_AFTER_BUILD FALSE
+        VST3_CATEGORIES Fx
+    )
+    target_sources(MasteringAudioMixNode PRIVATE
+        apps/mix-node-plugin/PluginProcessor.cpp
+        apps/mix-node-plugin/PluginEditor.cpp
+        apps/shared/WebViewComponent.cpp
+        apps/shared/BridgeClient.cpp
+    )
+    target_include_directories(MasteringAudioMixNode PRIVATE apps)
+    target_link_libraries(MasteringAudioMixNode
+        PRIVATE
+            mastering_audio_core
+            MasteringAudioUI
+            juce::juce_audio_processors
+            juce::juce_audio_utils
+            juce::juce_dsp
+            juce::juce_gui_extra
+        PUBLIC
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags
+    )
+
     juce_add_gui_app(MasteringAudioSuite
         COMPANY_NAME "Mastering Audio"
         BUNDLE_ID "audio.mastering.suite"
@@ -189,7 +236,7 @@ if(MASTERING_AUDIO_BUILD_PRODUCTS)
             juce::juce_recommended_warning_flags
     )
 
-    foreach(target MasteringAudioAnalyzer MasteringAudioSuite)
+    foreach(target MasteringAudioAnalyzer MasteringAudioMixNode MasteringAudioSuite)
         target_compile_definitions(${target} PRIVATE
             JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1
             JUCE_DISPLAY_SPLASH_SCREEN=0
@@ -197,7 +244,9 @@ if(MASTERING_AUDIO_BUILD_PRODUCTS)
     endforeach()
 
     target_compile_definitions(MasteringAudioAnalyzer PUBLIC JUCE_VST3_CAN_REPLACE_VST2=0)
+    target_compile_definitions(MasteringAudioMixNode PUBLIC JUCE_VST3_CAN_REPLACE_VST2=0)
     target_link_libraries(MasteringAudioAnalyzer PRIVATE juce::juce_events)
+    target_link_libraries(MasteringAudioMixNode PRIVATE juce::juce_events)
     target_link_libraries(MasteringAudioSuite PRIVATE juce::juce_events)
 
     install(TARGETS MasteringAudioSuite RUNTIME DESTINATION .)

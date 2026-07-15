@@ -44,11 +44,13 @@ jobs:
           if [[ -d testdata/official/wav ]] && compgen -G "testdata/official/wav/*.wav" > /dev/null; then
             ./build/core/mastering_audio_tests "[official]" --reporter compact
           fi
-          mkdir -p artifacts/dsp_validation artifacts/dynamic_processing_validation
+          mkdir -p artifacts/dsp_validation artifacts/dynamic_processing_validation artifacts/mix_node_validation
           ./build/core/dsp_validation_render artifacts/dsp_validation
           ./build/core/dynamic_processing_validation artifacts/dynamic_processing_validation
+          ./build/core/mix_node_validation artifacts/mix_node_validation
           ./build/core/mastering_audio_tests "[milestone1b]" --reporter compact
           ./build/core/mastering_audio_tests "[milestone1c]" --reporter compact
+          ./build/core/mastering_audio_tests "[milestone2a]" --reporter compact
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -89,6 +91,20 @@ jobs:
           path: |
             artifacts/dynamic_processing_validation/benchmark_smoke.md
           if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mix-node-validation
+          path: |
+            artifacts/mix_node_validation/**
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mix-node-benchmark-summary
+          path: |
+            artifacts/mix_node_validation/benchmark_smoke.md
+          if-no-files-found: warn
 
   ml-research:
     runs-on: ubuntu-latest
@@ -128,7 +144,7 @@ jobs:
         run: |
           cmake --build build --config Release --parallel
           ctest --test-dir build -C Release --output-on-failure
-          mkdir -p artifacts/dsp_validation artifacts/dynamic_processing_validation
+          mkdir -p artifacts/dsp_validation artifacts/dynamic_processing_validation artifacts/mix_node_validation
           TOOL=$(find build -type f \( -name 'dsp_validation_render.exe' -o -name 'dsp_validation_render' \) | head -n 1)
           if [[ -z "$TOOL" ]]; then
             echo "dsp_validation_render not found" >&2
@@ -141,16 +157,63 @@ jobs:
             exit 1
           fi
           "$DYN" artifacts/dynamic_processing_validation
-          ./build/Release/mastering_audio_tests.exe "[milestone1c]" --reporter compact \
-            || ./build/mastering_audio_tests.exe "[milestone1c]" --reporter compact \
-            || true
+          MIX=$(find build -type f \( -name 'mix_node_validation.exe' -o -name 'mix_node_validation' \) | head -n 1)
+          if [[ -z "$MIX" ]]; then
+            echo "mix_node_validation not found" >&2
+            exit 1
+          fi
+          "$MIX" artifacts/mix_node_validation
+          TESTBIN=$(find build -type f -name 'mastering_audio_tests.exe' | head -n 1)
+          "$TESTBIN" "[milestone2a]" --reporter compact
       - name: Package
         shell: pwsh
         run: ./scripts/package-windows.ps1 -BuildDir build -OutDir dist/windows -Config Release
+      - name: Try Inno Setup installer
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (Test-Path $iscc) {
+            & $iscc scripts/windows-installer.iss /DSourceDir="$pwd\dist\windows\MasteringAudioSuite" /DOutDir="$pwd\dist\windows"
+          } else {
+            Write-Host "ISCC not found after choco install"
+          }
+        continue-on-error: true
       - uses: actions/upload-artifact@v4
         with:
           name: mastering-audio-suite-windows
-          path: dist/windows/MasteringAudioSuite-windows-x64.zip
+          path: |
+            dist/windows/MasteringAudioSuite-windows-x64.zip
+            dist/windows/MasteringAudioSuite-Portable-x64.zip
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mastering-audio-mix-node-vst3
+          path: |
+            build/MasteringAudioMixNode_artefacts/Release/VST3/Mastering Audio Mix Node.vst3
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mastering-audio-suite-installer
+          path: |
+            dist/windows/MasteringAudioSuite-Setup-x64.exe
+            dist/windows/installer/**
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mix-node-validation-windows
+          path: |
+            artifacts/mix_node_validation/**
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mix-node-benchmark-summary-windows
+          path: |
+            artifacts/mix_node_validation/benchmark_smoke.md
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()
         with:

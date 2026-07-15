@@ -242,3 +242,15 @@ Latency: **0 samples** (no look-ahead).
 ## Not claimed
 
 Dynamic EQ is **not** intelligent metalcore processing, resonance detection, or MixAdvisor.
+
+## Milestone 2A — Mix Node chain
+
+`MixNodeChain` (shared DSP): Input Gain → Static EQ (1× TPT bell) → `DynamicEqProcessor` → optional `SaturationProcessor` → Output Gain.
+
+- No per-node true-peak limiter in M2A.
+- Latency = saturation oversampler latency when enabled; otherwise 0.
+- Oversampling is optional and not used by linear EQ stages.
+- Host plugin reports latency via `setLatencySamples`.
+- Sidechain audio is host-bus only (never IPC).
+
+See `docs/M2A_EVIDENCE_REPORT.md`.

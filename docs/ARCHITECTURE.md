@@ -7,7 +7,7 @@ Mastering Audio Suite is a personal local Windows metalcore mixing ecosystem.
 | Component | Status after Milestone 0 | Path |
 |---|---|---|
 | Analyzer VST3 | Present; honest RT labels; float+double pass-through policy | `apps/analyzer-plugin/` |
-| Mix Node VST3 | Missing (PoC after Milestone 1B) | — |
+| Mix Node VST3 | **IMPLEMENTED** (M2A vertical slice) | Shared `MixNodeChain` |
 | Standalone Suite | Present; stem mixer + rule MixAdvisor | `apps/mix-desktop/` |
 | ML CLI | Research-only Python package | `ml/` |
 | ML Lab GUI | Missing | — |

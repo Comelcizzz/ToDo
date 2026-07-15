@@ -3,6 +3,7 @@
 #include "mix-desktop/BridgeServer.h"
 #include "mix-desktop/StemEngine.h"
 #include "shared/WebViewComponent.h"
+#include "mastering/ipc/MixNodeProtocol.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <optional>
@@ -29,6 +30,8 @@ private:
     void timerCallback() override;
     void handleCommand(const juce::var& command);
     void handleBridgeAnalysis(const juce::var& report);
+    void handleMixNodeMessage(const ipc::MixNodeEnvelope& env, const juce::String& raw);
+    void sendMixNodeAction(const juce::String& messageType, const juce::var& command);
     void createProject();
     void chooseProjectToOpen();
     void chooseStems();
@@ -56,6 +59,7 @@ private:
     int exportBitDepth_ {24};
     juce::File projectFile_;
     std::unique_ptr<juce::FileChooser> fileChooser_;
+    juce::String selectedMixNodeId_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

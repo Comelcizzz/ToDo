@@ -38,7 +38,33 @@ export type NativeCommand =
       type: "toggle-track";
       trackId: string;
       field: "muted" | "soloed" | "polarityInverted";
-    };
+    }
+  | { type: "select-mix-node"; instanceId: string }
+  | {
+      type: "mix-node-preview";
+      instanceId: string;
+      processorId: string;
+      parameterId: string;
+      previousValue: number;
+      proposedValue: number;
+      explanation?: string;
+      actionId?: string;
+    }
+  | {
+      type: "mix-node-commit";
+      instanceId: string;
+      processorId: string;
+      parameterId: string;
+      previousValue: number;
+      proposedValue: number;
+      explanation?: string;
+      actionId?: string;
+    }
+  | { type: "mix-node-cancel-preview"; instanceId?: string }
+  | { type: "mix-node-undo"; instanceId?: string }
+  | { type: "mix-node-request-state"; instanceId: string }
+  | { type: "mix-node-set-param"; parameterId: string; value: number }
+  | { type: "set-track-name"; name: string };
 
 export function sendCommand(command: NativeCommand): void {
   window.__JUCE__?.backend.emitEvent("masteringAudioCommand", command);

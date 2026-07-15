@@ -1,6 +1,6 @@
 # Feature status
 
-Statuses: `IMPLEMENTED` | `PARTIAL` | `STUB` | `MOCK` | `MISSING` | `SCAFFOLD`
+Statuses: `IMPLEMENTED` | `PARTIAL` | `STUB` | `MOCK` | `MISSING` | `SCAFFOLD` | `NOT VERIFIED IN FL`
 
 ## Scope
 
@@ -11,44 +11,40 @@ Statuses: `IMPLEMENTED` | `PARTIAL` | `STUB` | `MOCK` | `MISSING` | `SCAFFOLD`
 
 ## Milestone 1A — Metering
 
-Mono/stereo LUFS / TP / LRA: **IMPLEMENTED** (see prior evidence). Multichannel OUT OF SCOPE.
+Mono/stereo LUFS / TP / LRA: **IMPLEMENTED**. Multichannel OUT OF SCOPE.
 
 ## Milestone 1B — Master safety DSP
 
-| Feature | Status |
-|---|---|
-| Oversampler + sat/soft/hard + LA TP limiter | **IMPLEMENTED** |
-| Export technical QC | **IMPLEMENTED** |
-| Mix Node / installer / metalcore pass | **MISSING** |
-
-**M1B: ACCEPTED** — `docs/M1B_VERIFICATION_REPORT.md`.
+Oversampler + sat/soft/hard + LA TP limiter + Export QC: **IMPLEMENTED**. **M1B ACCEPTED**.
 
 ## Milestone 1C — Dynamic EQ / FD sidechain
 
+Dynamic EQ + FD sidechain + detector: **IMPLEMENTED**. **M1C ACCEPTED** (see verification gate in M2A kickoff).
+
+## Milestone 2A — Mix Node VST3 + Suite + installer
+
 | Feature | Status | Notes |
 |---|---|---|
-| `EnvelopeDetector` (peak/RMS/hybrid, BP, SC filters) | **IMPLEMENTED** | No output feedback |
-| `DynamicEqProcessor` 1–4 bands | **IMPLEMENTED** | Bell / low / high shelf; TPT SVF |
-| Downward dynamic cut + maxCut guardrail | **IMPLEMENTED** | Soft knee ~3 dB |
-| Internal + external sidechain | **IMPLEMENTED** | Missing SC = silence |
-| Frequency-dependent sidechain wrapper | **IMPLEMENTED** | Detector ≠ target band allowed |
-| Linked stereo | **IMPLEMENTED** | Default |
-| Independent L/R | **IMPLEMENTED** | |
-| Mid/Side processing | **SCAFFOLD / MISSING** | Architecture not blocking |
-| Zero-latency Dynamic EQ | **IMPLEMENTED** | No look-ahead |
-| Absolute state + JSON + idempotency | **IMPLEMENTED** | schema v1 |
-| Per-band GR metering + history ring | **IMPLEMENTED** | |
-| Legacy `DynamicSeparator` broadband | **IMPLEMENTED** | Kept for compatibility |
-| Automatic frequency selection | **MISSING** | MixAdvisor later |
-| Resonance detector | **MISSING** | |
-| Metalcore rules / Mix Pass | **MISSING** | |
-| Section awareness | **MISSING** | |
-| Mix Node VST3 | **MISSING** | |
-| Multiband compressor | **MISSING** | |
-| Upward expansion | **MISSING** | Future |
+| Separate Mix Node VST3 target | **IMPLEMENTED** | `Mastering Audio Mix Node.vst3` |
+| Analyzer remains analysis-only | **IMPLEMENTED** | zero-latency pass-through |
+| Chain: In→Static EQ→DynEQ→Sat→Out | **IMPLEMENTED** | shared `MixNodeChain` |
+| Host sidechain bus | **IMPLEMENTED** | mono/stereo SC layouts |
+| Versioned identity + role presets | **IMPLEMENTED** | |
+| Action protocol preview/commit/cancel/undo | **IMPLEMENTED** | unit tested |
+| Host state persistence (no preview) | **IMPLEMENTED** | unit tested |
+| Suite Mix Nodes panel | **IMPLEMENTED** | developer UI |
+| Mix Node plugin UI | **IMPLEMENTED** | compact WebView |
+| Automation parameters | **IMPLEMENTED** | APVTS |
+| Early Inno Setup installer | **PARTIAL** | script + CI attempt; **NOT VERIFIED** manually |
+| Portable ZIP includes Analyzer + Mix Node | **IMPLEMENTED** | packaging script |
+| FL Studio manual checklist | **IMPLEMENTED** doc | all rows NOT TESTED |
+| FL Studio end-to-end | **NOT VERIFIED IN FL** | |
+| Metalcore Mix Pass | **MISSING** | |
+| ML Lab in installer | **MISSING** | intentionally excluded |
+| M/S processing | **SCAFFOLD / MISSING** | |
 
 ## Gate
 
-**M1A ACCEPTED** · **M1B ACCEPTED** · **M1C ACCEPTED** (see `docs/M1C_EVIDENCE_REPORT.md`).
+**M1A ACCEPTED** · **M1B ACCEPTED** · **M1C ACCEPTED** · **M2A REMAINS PARTIAL** (see `docs/M2A_EVIDENCE_REPORT.md`).
 
-Dynamic EQ is **not** intelligent metalcore processing. Do not start Mix Node / Metalcore Mix Pass / installer / ML Lab without a separate confirmation.
+Do not start full Metalcore Mix Pass / ML Lab / section-aware logic without a separate confirmation after evidence review.

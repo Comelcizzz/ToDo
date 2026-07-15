@@ -25,7 +25,10 @@ ctest --test-dir build -C Release --output-on-failure
 Artifacts:
 
 - `build/MasteringAudioAnalyzer_artefacts/Release/VST3/Mastering Audio Analyzer.vst3`
+- `build/MasteringAudioMixNode_artefacts/Release/VST3/Mastering Audio Mix Node.vst3`
 - `build/MasteringAudioSuite_artefacts/Release/Mastering Audio Suite.exe`
+- `dist/windows/MasteringAudioSuite-Portable-x64.zip`
+- `dist/windows/MasteringAudioSuite-Setup-x64.exe` (Inno Setup; unsigned; NOT VERIFIED without manual install)
 
 ## Install layout
 
@@ -37,6 +40,7 @@ C:\Program Files\Mastering Audio Suite\
 
 %COMMONPROGRAMFILES%\VST3\
   Mastering Audio Analyzer.vst3\
+  Mastering Audio Mix Node.vst3\
 ```
 
 Use the helper script:

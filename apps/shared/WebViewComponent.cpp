@@ -62,6 +62,8 @@ WebViewComponent::WebViewComponent(Product product)
     auto entryUrl = juce::WebBrowserComponent::getResourceProviderRoot();
     if (product_ == Product::analyzerPlugin)
         entryUrl += "#plugin";
+    else if (product_ == Product::mixNode)
+        entryUrl += "#mix-node";
     browser_->goToURL(entryUrl);
 }
 

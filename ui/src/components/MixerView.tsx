@@ -1,5 +1,6 @@
 import { sendCommand } from "../nativeBridge";
 import type { SuiteState } from "../types";
+import { MixNodesPanel } from "./MixNodesPanel";
 
 function formatTime(seconds: number) {
   const safeSeconds = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
@@ -290,6 +291,8 @@ export function MixerView({ state }: { state: SuiteState }) {
             )}
           </aside>
         </div>
+
+        <MixNodesPanel state={state} />
       </section>
     </main>
   );
