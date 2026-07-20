@@ -176,7 +176,7 @@ Dynamic EQ + FD sidechain + detector: **IMPLEMENTED**. **M1C ACCEPTED**.
 
 **Evidence:** `docs/M4B_EVIDENCE_REPORT.md`.
 
-**Gate:** set after tip CI.
+**Gate:** **MILESTONE 4B REMAINS PARTIAL** — implementation complete locally; tip CI queued without runner pickup at docs time (`3685782`). Re-check https://github.com/Comelcizzz/ToDo/actions/runs/29710747373.
 
 ## Manual validation checklist
 

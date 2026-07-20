@@ -1,9 +1,13 @@
 # MILESTONE 4B — Evidence Report
 
-**Gate: pending tip CI** (implementation complete locally)
+**Gate: MILESTONE 4B REMAINS PARTIAL**
 
-Product hardening / project reliability / release-candidate readiness.  
-No musical quality claims. No ML Lab.
+Implementation and local `[milestone4b]` tests are complete. Tip CI was still **queued** (no runner pickup) at documentation time — Linux/Windows green tip is required for full acceptance.
+
+Tip commit: `368578294912d51b685167b327c37a4c7039c34c` (`3685782`)  
+Push CI (queued/pending): https://github.com/Comelcizzz/ToDo/actions/runs/29710747373  
+PR CI (queued/pending): https://github.com/Comelcizzz/ToDo/actions/runs/29710750626  
+Local: `[milestone4b]` 290 assertions / 18 cases; M3B/M3C/M4A regression green.
 
 ---
 
