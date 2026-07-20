@@ -1,0 +1,96 @@
+{
+  "run_id": 29437233765,
+  "run_url": "https://github.com/Comelcizzz/ToDo/actions/runs/29437233765",
+  "pr_run_id": 29437236987,
+  "pr_run_url": "https://github.com/Comelcizzz/ToDo/actions/runs/29437236987",
+  "tip": "fe82d2b2eeb96ec2ebd1c797a42feb5de287bd4b",
+  "branch": "cursor/mastering-audio-932f",
+  "milestone3c_tests": {
+    "linux": "163 assertions in 32 test cases",
+    "windows": "163 assertions in 32 test cases",
+    "failed": 0,
+    "skipped": 0
+  },
+  "ctest": {
+    "linux": "145/145 passed",
+    "windows": "145/145 passed"
+  },
+  "artifacts": [
+    {
+      "artifact": "metalcore-engine-validation",
+      "upload_size_bytes": 264795887,
+      "sha256_zip": "bff655e0fc450a1316391454a89faf4efade022b7a02a19b5c4dfeacf514173c",
+      "generated": "2026-07-15T17:41:16Z"
+    },
+    {
+      "artifact": "mastering-audio-suite-windows",
+      "upload_size_bytes": 17420006,
+      "sha256_zip": "5d8aef603ec99bd5df9877bd483ab1ee04cdd3620a210d06d3580c43cc38f353",
+      "generated": "2026-07-15T17:56:02Z",
+      "contents": [
+        {
+          "path": "MasteringAudioSuite-windows-x64.zip",
+          "size_bytes": 8712324,
+          "sha256": "86a04061e4099aecbc6752d9f82ccb09f434252d22b0e58068c1ff4d71239aa9"
+        },
+        {
+          "path": "MasteringAudioSuite-Portable-x64.zip",
+          "size_bytes": 8712324,
+          "sha256": "86a04061e4099aecbc6752d9f82ccb09f434252d22b0e58068c1ff4d71239aa9"
+        }
+      ]
+    },
+    {
+      "artifact": "mastering-audio-mix-node-vst3",
+      "upload_size_bytes": 2668969,
+      "sha256_zip": "4f0da0dc2c025d087808f03c99475f868506ccd12818d3cbd99d8ddc8af687d1",
+      "generated": "2026-07-15T17:56:04Z"
+    },
+    {
+      "artifact": "mastering-audio-suite-installer",
+      "upload_size_bytes": 5219958,
+      "sha256_zip": "674d922aa70a471782d8e9915308184ced6ce0497c9ca3a82d7bb64625a86cf3",
+      "generated": "2026-07-15T17:56:06Z",
+      "contents": [
+        {
+          "path": "MasteringAudioSuite-Setup-x64.exe",
+          "size_bytes": 5771050,
+          "sha256": "48c69f8330adabd31ad0d59f36fe4fdea084012f714201f31b1be07f05a310b0"
+        }
+      ]
+    },
+    {
+      "artifact": "metalcore-engine-validation-windows",
+      "upload_size_bytes": 264796041,
+      "sha256_zip": "0e94718d44fb21023013186ea7d90adf6f3250b50169e3236a9a4062029e607a",
+      "generated": "2026-07-15T17:56:26Z"
+    },
+    {
+      "note": "blind-test-package lives inside metalcore-engine-validation{,-windows}/blind_test/"
+    },
+    {
+      "validation_files": [
+        {
+          "path": "raw.wav",
+          "size_bytes": 34560044,
+          "sha256": "9924dbaf3758f3884c0ce5ed539d30ed0030cdeb95b2543941a66542c3f976ed"
+        },
+        {
+          "path": "auto.wav",
+          "size_bytes": 34560044,
+          "sha256": "06b5544a7a272ee3421681d852ffe60701c820ea122f49cc23dd87d119e75d42"
+        },
+        {
+          "path": "current.wav",
+          "size_bytes": 34560044,
+          "sha256": "b99feadb08987a02534962b93046d8f718b3c1ea977af77739e298f997a0968e"
+        },
+        {
+          "path": "render_identity.json",
+          "size_bytes": 1327,
+          "sha256": "d26cf8fd8aa8b9f410e241e5556aba11c12daaf55308bd9854824e4de84a5da7"
+        }
+      ]
+    }
+  ]
+}

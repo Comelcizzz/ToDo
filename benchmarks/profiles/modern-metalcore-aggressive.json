@@ -1,0 +1,111 @@
+{
+  "aggressiveness": 0.8,
+  "autoApply": {
+    "allowMusicalAutoApply": false,
+    "allowReferenceAutoApply": false,
+    "conservativeEvidence": 0.58,
+    "lowTechnicalEvidence": 0.35,
+    "maxCumulativeProcessingDb": 12.0,
+    "musicalEvidence": 0.95,
+    "respectConflictReject": true
+  },
+  "budget": {
+    "maxActionsPerTrack": 8,
+    "maxCumulativeEqCutDb": 9.0,
+    "maxDynEqBandsPerTrack": 2,
+    "maxGainChangeDb": 6.0,
+    "maxSectionActionsPerTrack": 3,
+    "maxSectionOffsetDb": 3.0,
+    "maxTotalUnmaskDb": 7.0,
+    "minEvidence": 0.35,
+    "preferCorrectiveOverReference": true
+  },
+  "detectors": {
+    "guitarBalanceEvidenceGate": 0.7,
+    "guitarBalanceRmsDeltaDb": 1.5,
+    "kickEvidenceGate": 0.4,
+    "kickMinSpacingSeconds": 0.2,
+    "overlapEqEvidenceGate": 0.55,
+    "presenceLiftEvidenceGate": 0.75,
+    "snareMinSpacingSeconds": 0.12,
+    "stabilityGate": 0.35,
+    "stereoCorrNarrow": 0.15,
+    "stereoCorrWide": 0.85,
+    "syntheticBassFallbackHz": 70.0,
+    "syntheticKickFallbackHz": 65.0,
+    "vocalActivityGate": 0.08,
+    "vocalCrestGateDb": 15.0
+  },
+  "displayName": "Modern Metalcore Aggressive",
+  "drums": {
+    "parallelRatio": 4.0,
+    "parallelThresholdDb": -20.0,
+    "parallelWetDefault": 0.55,
+    "transientGuardCrestDb": 12.0
+  },
+  "evidence": {
+    "detectorAgreement": 0.1,
+    "eventConsistency": 0.1,
+    "eventCount": 0.1,
+    "highLabelThreshold": 0.65,
+    "mediumLabelThreshold": 0.35,
+    "noiseFloor": 0.08,
+    "referenceAgreement": 0.08,
+    "roleCertainty": 0.14,
+    "sectionConsistency": 0.08,
+    "signalDuration": 0.1,
+    "spectralProminence": 0.14,
+    "temporalOverlap": 0.08
+  },
+  "guitar": {
+    "dynEqThresholdDb": -24.0,
+    "fizzBandHz": 7500.0,
+    "fizzMaxCutDb": 4.0,
+    "harshBandHz": 3500.0,
+    "harshMaxCutDb": 6.0,
+    "mudBandHz": 220.0,
+    "mudMaxCutDb": 4.0
+  },
+  "loudness": {
+    "matchGainClampDb": 12.0,
+    "minIntegratedSeconds": 3.0,
+    "shortTermMinSeconds": 1.0
+  },
+  "masterSafety": {
+    "ceilingDbTp": -1.0,
+    "limiterEnabled": true,
+    "lookAheadMs": 1.5,
+    "oversamplingFactor": 4
+  },
+  "notes": "More assertive but still clamped by engine hard safety caps.",
+  "profileId": "modern-metalcore-aggressive",
+  "reference": {
+    "allowAutoApply": false,
+    "kickToBassDeviationDb": 1.5,
+    "lowMidCutDb": -1.5,
+    "lowMidDeviationDb": 3.0,
+    "lowMidHz": 220.0
+  },
+  "revision": "1",
+  "roleCaps": {
+    "bassGainDb": 4.0,
+    "drumBusParallelWet": 0.65,
+    "guitarDynEqCutDb": 7.0,
+    "kickGainDb": 4.0,
+    "sectionGainDb": 3.0,
+    "snareUnmaskCutDb": 4.0,
+    "vocalUnmaskCutDb": 6.0
+  },
+  "schemaVersion": 1,
+  "stereo": {
+    "defaultLowBandMonoHz": 120.0,
+    "maxSideGainDb": 3.0,
+    "minCorrelation": -0.2
+  },
+  "vocal": {
+    "deEssHz": 7500.0,
+    "resonanceMaxCutDb": 4.0,
+    "rideTargetDb": -18.0,
+    "unmaskMaxCutDb": 5.0
+  }
+}
