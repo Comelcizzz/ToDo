@@ -12,7 +12,7 @@
 
 namespace mastering::project {
 
-inline constexpr int kCurrentSchemaVersion = 6;
+inline constexpr int kCurrentSchemaVersion = 7;
 inline constexpr int kMinSupportedSchemaVersion = 1;
 
 enum class TrackRole {

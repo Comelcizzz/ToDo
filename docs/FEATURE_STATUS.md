@@ -151,6 +151,33 @@ Dynamic EQ + FD sidechain + detector: **IMPLEMENTED**. **M1C ACCEPTED**.
 
 **Gate:** **MILESTONE 4A ACCEPTED** — tip `23e0f5b`, push CI [29442392596](https://github.com/Comelcizzz/ToDo/actions/runs/29442392596), PR CI [29442395468](https://github.com/Comelcizzz/ToDo/actions/runs/29442395468). Infrastructure only; musical quality not proven.
 
+## Milestone 4B — Product hardening & release-candidate readiness
+
+| Feature | Status | Notes |
+|---|---|---|
+| Reliability audit | **IMPLEMENTED** | `docs/M4B_RELIABILITY_AUDIT.md` |
+| Atomic project saves | **IMPLEMENTED** | temp/validate/flush/rename + backup |
+| Autosave + crash recovery | **IMPLEMENTED** | Preview never committed |
+| Schema migration pipeline | **IMPLEMENTED** | schema 7; reject newer writable |
+| Asset relink by fingerprint | **IMPLEMENTED** | name-only rejected |
+| Portable package | **IMPLEMENTED** | consent + traversal blocked |
+| Job system + render integrity | **IMPLEMENTED** | bounded concurrency; incomplete discard |
+| Disk/memory budgets | **IMPLEMENTED** | LRU + low-memory mode |
+| Typed errors / diagnostics / logging | **IMPLEMENTED** | no personal audio in diagnostics |
+| Project locking | **IMPLEMENTED** | local `.lock` |
+| Export dither policy | **IMPLEMENTED** | no float32 dither |
+| UI reliability hooks | **IMPLEMENTED** | save/autosave/jobs/errors (no redesign) |
+| Stress/fuzz/IPC tests | **IMPLEMENTED** | `[milestone4b]` |
+| Version `0.4.0-alpha.m4b` | **IMPLEMENTED** | engineRevision 5 |
+| Musical quality | **NOT CLAIMED** | |
+| ML Lab | **MISSING** | not started |
+| FL / installer manual | **NOT VERIFIED** | postponed |
+| M2A | **PARTIAL** | unchanged |
+
+**Evidence:** `docs/M4B_EVIDENCE_REPORT.md`.
+
+**Gate:** set after tip CI.
+
 ## Manual validation checklist
 
 Kept for a later full Metalcore Mix Pass manual pass: `docs/FL_MIX_NODE_VALIDATION.md`.

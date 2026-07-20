@@ -6,6 +6,7 @@
 #include "mastering/assistant/MetalcoreMixPass.h"
 #include "mastering/benchmark/UserEditCapture.h"
 #include "mastering/ipc/MixNodeProtocol.h"
+#include "mastering/reliability/JobSystem.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <optional>
@@ -89,6 +90,16 @@ private:
     juce::String activeProfileId_ {"modern-metalcore-balanced"};
     bool experimentCancelled_ {false};
     benchmark::LocalUserEditLog userEditLog_;
+    reliability::JobSystem jobSystem_ {2};
+    juce::String autosaveStatusText_ {"idle"};
+    juce::String lastSavedIso_;
+    juce::String recoverySummary_;
+    juce::String jobQueueJson_ {"[]"};
+    juce::String lastErrorJson_;
+    bool projectDirty_ {false};
+    double autosaveIntervalSeconds_ {60.0};
+    double autosaveDebounceSeconds_ {1.5};
+    double secondsSinceAutosave_ {0.0};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

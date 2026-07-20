@@ -218,6 +218,13 @@ export interface SuiteState {
   lastExperimentSummary?: string;
   lastImportValidation?: string;
   userEditEventCount?: number;
+  autosaveStatus?: string;
+  lastSavedIso?: string;
+  projectDirty?: boolean;
+  jobQueueJson?: string;
+  recoverySummary?: string;
+  lastErrorJson?: string;
+  projectSchemaVersion?: number;
 }
 
 export const emptyMetrics: AudioMetrics = {

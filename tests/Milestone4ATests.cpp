@@ -125,11 +125,12 @@ TEST_CASE("M4A product version format includes milestone and sha slot", "[milest
     REQUIRE(v.major == 0);
     REQUIRE(v.minor == 4);
     REQUIRE(v.patch == 0);
-    REQUIRE(v.prerelease == "alpha.m4a");
+    REQUIRE(v.prerelease == "alpha.m4b");
     REQUIRE(v.profileSchemaVersion == 1);
-    REQUIRE(v.engineRevision == 4);
+    REQUIRE(v.engineRevision == 5);
+    REQUIRE(v.projectSchemaVersion == 7);
     const auto full = v.full();
-    REQUIRE(full.find("0.4.0-alpha.m4a") == 0);
+    REQUIRE(full.find("0.4.0-alpha.m4b") == 0);
     REQUIRE_FALSE(v.toJson().empty());
 }
 

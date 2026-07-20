@@ -90,7 +90,9 @@ export type NativeCommand =
   | { type: "run-profile-experiment" }
   | { type: "cancel-experiment" }
   | { type: "validate-benchmark-import" }
-  | { type: "set-metalcore-profile"; profileId: string };
+  | { type: "set-metalcore-profile"; profileId: string }
+  | { type: "save-project-as" }
+  | { type: "export-diagnostics" };
 
 export function sendCommand(command: NativeCommand): void {
   window.__JUCE__?.backend.emitEvent("masteringAudioCommand", command);

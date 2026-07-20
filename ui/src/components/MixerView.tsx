@@ -170,13 +170,17 @@ export function MixerView({ state }: { state: SuiteState }) {
           <div>
             <strong>Mastering Audio</strong>
             <small>Metalcore Mix Pass</small>
-            <small>{state.productVersion ?? "0.4.0-alpha.m4a"}</small>
+            <small>{state.productVersion ?? "0.4.0-alpha.m4b"}</small>
           </div>
         </div>
 
         <nav>
           <button onClick={() => sendCommand({ type: "create-project" })}>New project</button>
           <button onClick={() => sendCommand({ type: "open-project" })}>Open project</button>
+          <button onClick={() => sendCommand({ type: "save-project" })}>
+            {state.projectDirty ? "Save *" : "Save"}
+          </button>
+          <button onClick={() => sendCommand({ type: "save-project-as" })}>Save as</button>
           <button onClick={() => sendCommand({ type: "import-stems" })}>Import stems</button>
           <button onClick={() => sendCommand({ type: "import-reference" })}>
             Add reference
@@ -212,6 +216,9 @@ export function MixerView({ state }: { state: SuiteState }) {
           <button onClick={() => sendCommand({ type: "clear-benchmark-renders" })}>
             Clear renders
           </button>
+          <button onClick={() => sendCommand({ type: "export-diagnostics" })}>
+            Export diagnostics
+          </button>
         </nav>
 
         <div className="sidebar__status">
@@ -226,6 +233,11 @@ export function MixerView({ state }: { state: SuiteState }) {
             <small title={state.localDataPath}>
               Data: {state.localDataPath ? "personal benchmarks" : "unset"}
             </small>
+            <small>
+              Autosave: {state.autosaveStatus ?? "idle"}
+              {state.lastSavedIso ? ` · ${state.lastSavedIso}` : ""}
+            </small>
+            <small>Schema {state.projectSchemaVersion ?? 7}</small>
           </div>
         </div>
       </aside>
@@ -575,6 +587,15 @@ export function MixerView({ state }: { state: SuiteState }) {
               Benchmark: {state.lastExperimentSummary ?? "none"} · edits{" "}
               {state.userEditEventCount ?? 0}
             </p>
+            {state.recoverySummary ? (
+              <p className="assistant__intro">Recovery: {state.recoverySummary.slice(0, 180)}</p>
+            ) : null}
+            {state.lastErrorJson ? (
+              <p className="assistant__intro">Error: {state.lastErrorJson.slice(0, 160)}</p>
+            ) : null}
+            {state.jobQueueJson && state.jobQueueJson !== "[]" ? (
+              <p className="assistant__intro">Jobs: {state.jobQueueJson.slice(0, 160)}</p>
+            ) : null}
             {state.lastImportValidation && state.lastImportValidation !== "idle" ? (
               <p className="assistant__intro">Import: {state.lastImportValidation.slice(0, 160)}</p>
             ) : null}

@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Short git SHA for product version string (0.4.0-alpha.m4a+abcdef0).
+# Short git SHA for product version string (0.4.0-alpha.m4b+abcdef0).
 set(MASTERING_AUDIO_GIT_SHA "unknown")
 find_package(Git QUIET)
 if(GIT_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
@@ -73,6 +73,20 @@ add_library(mastering_audio_core STATIC
     modules/benchmark/src/GoldenRegression.cpp
     modules/benchmark/src/CalibrationWorksheet.cpp
     modules/benchmark/src/RenderRetention.cpp
+    modules/reliability/src/TypedError.cpp
+    modules/reliability/src/AtomicFile.cpp
+    modules/reliability/src/AutosaveRecovery.cpp
+    modules/reliability/src/SchemaMigration.cpp
+    modules/reliability/src/AssetRelinker.cpp
+    modules/reliability/src/PortablePackage.cpp
+    modules/reliability/src/JobSystem.cpp
+    modules/reliability/src/RenderIntegrity.cpp
+    modules/reliability/src/DiskMemory.cpp
+    modules/reliability/src/Diagnostics.cpp
+    modules/reliability/src/ProjectLock.cpp
+    modules/reliability/src/SettingsStore.cpp
+    modules/reliability/src/ExportPolicy.cpp
+    modules/reliability/src/IpcHardening.cpp
     modules/dsp/src/VocalRider.cpp
     modules/project-bridge/src/ProjectDocument.cpp
     modules/research-export/src/ResearchExample.cpp
@@ -91,6 +105,7 @@ target_include_directories(mastering_audio_core
         modules/ipc/include
         modules/product-version/include
         modules/benchmark/include
+        modules/reliability/include
 )
 
 target_compile_features(mastering_audio_core PUBLIC cxx_std_23)
@@ -144,6 +159,7 @@ if(MASTERING_AUDIO_BUILD_TESTS)
         tests/MetalcoreEngineM3CTests.cpp
         tests/MetalcoreEngineM3CVerificationTests.cpp
         tests/Milestone4ATests.cpp
+        tests/Milestone4BTests.cpp
     )
     target_link_libraries(mastering_audio_tests
         PRIVATE

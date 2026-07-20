@@ -589,7 +589,7 @@ TEST_CASE("M3B save/reopen preserves mixPassActions orderIndex (schema v5)", "[m
     const auto restored = mastering::project::deserialize(json);
     REQUIRE(restored.has_value());
     CHECK(restored->schemaVersion == mastering::project::kCurrentSchemaVersion);
-    CHECK(mastering::project::kCurrentSchemaVersion == 6);
+    CHECK(mastering::project::kCurrentSchemaVersion == 7);
     REQUIRE(restored->mixPassActions.size() == project.mixPassActions.size());
     for (std::size_t i = 0; i < restored->mixPassActions.size(); ++i) {
         CHECK(restored->mixPassActions[i].orderIndex == project.mixPassActions[i].orderIndex);

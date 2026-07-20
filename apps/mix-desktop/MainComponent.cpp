@@ -16,6 +16,12 @@
 #include "mastering/ipc/BridgeProtocol.h"
 #include "mastering/ipc/MixNodeProtocol.h"
 #include "mastering/product/ProductVersion.h"
+#include "mastering/reliability/AtomicFile.h"
+#include "mastering/reliability/AutosaveRecovery.h"
+#include "mastering/reliability/Diagnostics.h"
+#include "mastering/reliability/JobSystem.h"
+#include "mastering/reliability/ProjectLock.h"
+#include "mastering/reliability/SchemaMigration.h"
 #include "mastering/research/ResearchExample.h"
 
 #include <algorithm>
@@ -112,6 +118,23 @@ void MainComponent::filesDropped(const juce::StringArray& files, int, int)
 
 void MainComponent::timerCallback()
 {
+    // Autosave debounce: ~15 Hz timer accumulates seconds.
+    secondsSinceAutosave_ += 1.0 / 15.0;
+    if (projectDirty_
+        && !projectFile_.getFullPathName().isEmpty()
+        && secondsSinceAutosave_ >= autosaveIntervalSeconds_) {
+        const auto payload = reliability::stripTemporaryPreviewFromProjectJson(
+            project::serialize(project_));
+        const auto path = reliability::autosavePathFor(projectFile_.getFullPathName().toStdString());
+        const auto saved = reliability::atomicSaveText(
+            path, payload, project::kCurrentSchemaVersion, false);
+        autosaveStatusText_ = saved.ok ? "autosave pending cleared" : "autosave failed";
+        if (saved.ok) {
+            lastSavedIso_ = juce::Time::getCurrentTime().toISO8601(true);
+            secondsSinceAutosave_ = 0.0;
+        }
+    }
+    jobQueueJson_ = juce::String(jobSystem_.toJson());
     pushState();
 }
 
@@ -130,6 +153,19 @@ void MainComponent::handleCommand(const juce::var& command)
         chooseProjectToOpen();
     } else if (type == "save-project") {
         saveProject(projectFile_.getFullPathName().isEmpty());
+    } else if (type == "save-project-as") {
+        saveProject(true);
+    } else if (type == "export-diagnostics") {
+        const auto bundle = reliability::buildDiagnosticBundle(
+            product::currentProductVersion().full(),
+            product::currentProductVersion().shortCommit,
+            {},
+            jobSystem_.toJson());
+        const auto text = reliability::serializeDiagnosticBundle(bundle);
+        const auto out = localDataRoot().getChildFile("diagnostics").getChildFile("bundle.json");
+        out.getParentDirectory().createDirectory();
+        reliability::atomicSaveText(out.getFullPathName().toStdString(), text, 1, false);
+        lastErrorJson_.clear();
     } else if (type == "import-stems") {
         chooseStems();
     } else if (type == "import-reference") {
@@ -163,8 +199,11 @@ void MainComponent::handleCommand(const juce::var& command)
         generateMixPlan();
     } else if (type == "generate-metalcore-mix-pass") {
         generateMetalcoreMixPass();
+        projectDirty_ = true;
+        secondsSinceAutosave_ = 0.0; // debounce after important action
     } else if (type == "ensure-hierarchy") {
         assistant::MetalcoreMixPass::ensureHierarchy(project_);
+        projectDirty_ = true;
     } else if (type == "set-bpm") {
         project_.bpm = juce::jlimit(40.0, 300.0, static_cast<double>(object->getProperty("bpm")));
     } else if (type == "add-section") {
@@ -647,13 +686,65 @@ void MainComponent::saveProject(bool chooseDestination)
             });
         return;
     }
-    projectFile_.replaceWithText(project::serialize(project_));
+    project_.schemaVersion = project::kCurrentSchemaVersion;
+    project_.engineVersion = product::currentProductVersion().full();
+    const auto payload = reliability::stripTemporaryPreviewFromProjectJson(
+        project::serialize(project_));
+    const auto saved = reliability::atomicSaveText(
+        projectFile_.getFullPathName().toStdString(),
+        payload,
+        project::kCurrentSchemaVersion,
+        true);
+    if (!saved.ok) {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::WarningIcon,
+            "Save failed",
+            saved.error.has_value()
+                ? juce::String(saved.error->userMessage + "\n" + saved.error->suggestedAction)
+                : juce::String("Could not save project."));
+        autosaveStatusText_ = "autosave failed";
+        return;
+    }
+    lastSavedIso_ = juce::Time::getCurrentTime().toISO8601(true);
+    autosaveStatusText_ = "saved";
+    projectDirty_ = false;
 }
 
 void MainComponent::openProject(const juce::File& file)
 {
+    mixPassUndoStack_.clear();
+    mixPassRedoStack_.clear();
+
+    const auto recovery = reliability::scanRecoveryCandidates(
+        file.getFullPathName().toStdString(),
+        localDataRoot().getFullPathName().toStdString());
+    if (!recovery.empty()) {
+        recoverySummary_ = juce::String(reliability::serializeRecoveryCandidate(recovery.front()));
+        autosaveStatusText_ = "recovered autosave available";
+    }
+
     project::DeserializeError error;
-    const auto restored = project::deserialize(file.loadFileAsString().toStdString(), error);
+    auto raw = file.loadFileAsString().toStdString();
+    const auto migrated = reliability::migrateDocument(
+        "project",
+        raw,
+        project::kCurrentSchemaVersion,
+        project::kMinSupportedSchemaVersion,
+        project::kCurrentSchemaVersion,
+        file.getFullPathName().toStdString());
+    if (migrated.unsupportedNewer) {
+        juce::AlertWindow::showMessageBoxAsync(
+            juce::MessageBoxIconType::WarningIcon,
+            "Unsupported newer project",
+            migrated.error.has_value()
+                ? juce::String(migrated.error->userMessage)
+                : juce::String("Upgrade Suite to open this project as writable."));
+        return;
+    }
+    if (migrated.ok)
+        raw = migrated.outputJson;
+
+    const auto restored = project::deserialize(raw, error);
     if (!restored) {
         juce::AlertWindow::showMessageBoxAsync(
             juce::MessageBoxIconType::WarningIcon,
@@ -701,6 +792,20 @@ void MainComponent::openProject(const juce::File& file)
         engine_.clearReference();
         referenceMetrics_.reset();
     }
+
+    int missing = 0;
+    for (const auto& track : project_.tracks) {
+        if (!track.audioPath.empty() && !juce::File(track.audioPath).existsAsFile())
+            ++missing;
+    }
+    if (missing > 0)
+        analysisStatus_ = juce::String(missing) + " missing asset(s) — relink required";
+
+    reliability::tryAcquireProjectLock(
+        file.getFullPathName().toStdString(),
+        static_cast<std::uint64_t>(juce::Process::getCurrentProcessId()),
+        "MasteringAudioSuite");
+    projectDirty_ = false;
     pushState();
 }
 
@@ -1397,6 +1502,13 @@ void MainComponent::pushState()
     object->setProperty("lastExperimentSummary", lastExperimentSummary_);
     object->setProperty("lastImportValidation", lastImportValidation_);
     object->setProperty("userEditEventCount", static_cast<int>(userEditLog_.events().size()));
+    object->setProperty("autosaveStatus", autosaveStatusText_);
+    object->setProperty("lastSavedIso", lastSavedIso_);
+    object->setProperty("projectDirty", projectDirty_);
+    object->setProperty("jobQueueJson", jobQueueJson_);
+    object->setProperty("recoverySummary", recoverySummary_);
+    object->setProperty("lastErrorJson", lastErrorJson_);
+    object->setProperty("projectSchemaVersion", project::kCurrentSchemaVersion);
     object->setProperty("projectId", juce::String(project_.id));
     object->setProperty("projectName", juce::String(project_.name));
     object->setProperty("playing", engine_.isPlaying());
